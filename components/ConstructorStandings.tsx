@@ -1,0 +1,48 @@
+import React from 'react';
+import { ConstructorStanding } from '../types';
+
+interface ConstructorStandingsProps {
+  standings: ConstructorStanding[];
+  onSelectTeam: (teamName: string) => void;
+}
+
+const ConstructorStandings: React.FC<ConstructorStandingsProps> = ({ standings, onSelectTeam }) => {
+  const sortedStandings = [...standings].sort((a, b) => b.points - a.points);
+
+  return (
+    <div className="w-full bg-gray-800 p-6 rounded-lg shadow-2xl h-full flex flex-col">
+      <h3 className="text-2xl font-bold mb-4 text-white">Constructor Standings</h3>
+      <div className="overflow-y-auto flex-grow">
+        <table className="min-w-full divide-y divide-gray-700">
+          <thead className="bg-gray-900 sticky top-0">
+            <tr>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-300 uppercase">Pos</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-300 uppercase">Team</th>
+              <th className="px-4 py-2 text-right text-xs font-medium text-gray-300 uppercase">Points</th>
+            </tr>
+          </thead>
+          <tbody className="bg-gray-800 divide-y divide-gray-700">
+            {sortedStandings.map((team, index) => (
+              <tr 
+                key={team.teamName}
+                onClick={() => onSelectTeam(team.teamName)}
+                className="cursor-pointer hover:bg-gray-700 transition-colors"
+              >
+                <td className="px-4 py-3 font-semibold">{index + 1}</td>
+                <td className="px-4 py-3">
+                   <div className="flex items-center">
+                    <div className={`w-1 h-5 mr-3`} style={{ backgroundColor: team.teamHexColor }}></div>
+                    <div className="text-sm font-medium text-white">{team.teamName}</div>
+                  </div>
+                </td>
+                <td className="px-4 py-3 text-right font-bold font-mono">{team.points}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+export default ConstructorStandings;

@@ -1,0 +1,5 @@
+{
+  "name": "F1 Manager",
+  "description": "A standalone F1 race simulator with a data-driven qualifying phase and a local engine for dynamic race strategies and commentary.",
+  "requestFramePermissions": []
+}
