@@ -1481,7 +1481,15 @@ const App: React.FC = () => {
       const poachedDriver = newDriverInFinalRoster && roster.find(r => r.id === newDriverInFinalRoster.id && r.status === 'Active');
 
       const playerTeamCar = CARS[Object.keys(CARS).find(k => CARS[k as keyof typeof CARS].teamName === playerTeam)! as keyof typeof CARS];
-      const playerFinalRosterWithCar = playerFinalRoster.map(d => ({...d, car: playerTeamCar, status: 'Active' as 'Active'}));
+      const playerFinalRosterWithCar = playerFinalRoster.map(d => ({
+          ...d,
+          car: playerTeamCar,
+          status: 'Active' as 'Active',
+          negotiationStatus: 'Signed' as const,
+          contractExpiresIn: Math.max(2, (d.contractExpiresIn ?? 1) + 1), // Protect against instant expiry after ageing
+          happiness: Math.min(100, (d.happiness ?? 70) + 5),
+          morale: Math.min(100, (d.morale ?? 70) + 5),
+      }));
       
       const oldPlayerDriverIds = originalPlayerRoster.map(d => d.id);
       const newPlayerDriverIds = playerFinalRosterWithCar.map(d => d.id);

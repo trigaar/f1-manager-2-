@@ -613,6 +613,37 @@ const calculateNextStates = (
             if (nextRaceState.flag === RaceFlag.VirtualSafetyCar) baseLapTime *= 1.3;
             if (driver.raceStatus === 'Damaged') baseLapTime *= 1.05;
             baseLapTime += (100 - driver.driverSkills.raceCraft) * 0.017 + lapPerformanceModifier;
+
+            if (driver.raceStatus === 'Racing' && nextRaceState.flag === RaceFlag.Green) {
+                const randomRoll = Math.random();
+                if (randomRoll < 0.003) {
+                    baseLapTime += 4 + Math.random() * 2;
+                    driver.ersCharge = Math.max(0, driver.ersCharge - 25);
+                    driver.currentTyres.wear = Math.min(100, driver.currentTyres.wear + 3);
+                    lapEvents.push({
+                        type: 'MECHANICAL_ISSUE',
+                        driverName: driver.name,
+                        data: { message: 'reports a gearbox hesitation and loses time.' }
+                    });
+                } else if (randomRoll < 0.006) {
+                    baseLapTime += 1.8 + Math.random();
+                    driver.currentTyres.wear = Math.min(100, driver.currentTyres.wear + 6);
+                    lapEvents.push({
+                        type: 'LOCK_UP',
+                        driverName: driver.name,
+                        data: { message: 'locks up into Turn 1 and flat-spots the tyre.' }
+                    });
+                } else if (randomRoll < 0.008) {
+                    baseLapTime -= 0.6;
+                    driver.morale = Math.min(100, driver.morale + 2);
+                    lapEvents.push({
+                        type: 'BRILLIANT_LAP',
+                        driverName: driver.name,
+                        data: { message: 'strings together a perfect sector for a surprise boost.' }
+                    });
+                }
+            }
+
             driver.lapTime = parseFloat(baseLapTime.toFixed(3));
             if (driver.raceStatus === 'Racing' && nextRaceState.flag === RaceFlag.Green && (!fastestLap || driver.lapTime < fastestLap.time)) {
                 setFastestLap({ driverName: driver.name, time: driver.lapTime });
@@ -1442,7 +1473,15 @@ const App: React.FC = () => {
       const poachedDriver = newDriverInFinalRoster && roster.find(r => r.id === newDriverInFinalRoster.id && r.status === 'Active');
 
       const playerTeamCar = CARS[Object.keys(CARS).find(k => CARS[k as keyof typeof CARS].teamName === playerTeam)! as keyof typeof CARS];
-      const playerFinalRosterWithCar = playerFinalRoster.map(d => ({...d, car: playerTeamCar, status: 'Active' as 'Active'}));
+      const playerFinalRosterWithCar = playerFinalRoster.map(d => ({
+          ...d,
+          car: playerTeamCar,
+          status: 'Active' as const,
+          contractExpiresIn: d.contractExpiresIn && d.contractExpiresIn > 0 ? d.contractExpiresIn : 2,
+          negotiationStatus: 'Signed' as const,
+          happiness: Math.min(100, (d.happiness || 80) + 10),
+          morale: Math.min(100, (d.morale || 80) + 8)
+      }));
       
       const oldPlayerDriverIds = originalPlayerRoster.map(d => d.id);
       const newPlayerDriverIds = playerFinalRosterWithCar.map(d => d.id);
