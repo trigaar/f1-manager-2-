@@ -1499,11 +1499,17 @@ const App: React.FC = () => {
           return d;
       });
 
+      const existingIds = new Set(intermediateRoster.map(d => d.id));
+      const newPlayerAdditions = playerFinalRosterWithCar.filter(d => !existingIds.has(d.id));
+      if (newPlayerAdditions.length > 0) {
+          intermediateRoster = [...intermediateRoster, ...newPlayerAdditions];
+      }
+
       if (poachedDriver) {
           addLog(`[Poach Confirmed!] You have successfully signed ${poachedDriver.name} from ${poachedDriver.car.teamName}!`);
       }
 
-      const { newRoster: finalRoster, log, rookiesUsed } = runDriverMarket(intermediateRoster, driverDebriefs, teamDebriefs, mvi, teamFinances, personnel, rookiePool, playerTeam!);
+      const { newRoster: finalRoster, log, rookiesUsed } = runDriverMarket(intermediateRoster, driverDebriefs, teamDebriefs, mvi, teamFinances, personnel, rookiePool, playerTeam!, season);
       
       setRoster(finalRoster);
       setDriverMarketLog(log);
