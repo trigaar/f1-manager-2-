@@ -4,7 +4,10 @@ An ultra-detailed, season-by-season Formula 1 management simulation. The app gui
 
 ## Quickstart
 
-**Prerequisite:** Node.js 18+
+**Prerequisites**
+
+- Node.js **18+** (ensure `node -v` reports >= 18)
+- npm (bundled with Node)
 
 ```bash
 npm install
@@ -13,27 +16,37 @@ npm run dev
 
 Set `GEMINI_API_KEY` in `.env.local` to enable the Gemini-powered summaries.
 
-### Run the app locally (full steps)
+### Local setup (step-by-step)
 
-1. **Install dependencies** (from the repo root):
+1. **Clone and enter the repo**
+   ```bash
+   git clone <repo-url>
+   cd f1-manager-2-
+   ```
+2. **Verify Node version** (upgrade if needed so you are on 18+)
+   ```bash
+   node -v
+   ```
+3. **Install dependencies**
    ```bash
    npm install
    ```
-2. **Create environment file** if you want AI summaries:
+4. **(Optional) Configure AI summaries** – create `.env.local` at the repo root with your Gemini key
    ```bash
    echo "GEMINI_API_KEY=your-key-here" > .env.local
    ```
-3. **Start the dev server**:
+5. **Start the dev server**
    ```bash
    npm run dev
    ```
-   Vite will print a localhost URL (default http://localhost:3000). Open it in your browser.
-4. **Production sanity check** (optional):
+   Vite prints the URL (usually http://localhost:5173). Open it in your browser.
+6. **(Optional) Production sanity check** – build and preview the optimized bundle
    ```bash
    npm run build
    npm run preview
    ```
    This runs the Vite production build and serves it locally for validation.
+7. **(Optional) Clear local data** – if you want a clean slate between test runs, clear localStorage in your browser devtools or use the in-app full reset option.
 
 ## Gameplay flow at a glance
 
