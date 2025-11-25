@@ -1,5 +1,5 @@
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { Track, DriverStanding, ConstructorStanding, UpcomingRaceQuote, RaceHistory, InitialDriver } from '../types';
 import DriverStandings from './DriverStandings';
 import ConstructorStandings from './ConstructorStandings';
@@ -21,6 +21,7 @@ interface SetupScreenProps {
   raceHistory: RaceHistory;
   roster: InitialDriver[];
   onSetSeasonLength: (length: 'full' | 'short') => void;
+  seasonLength: 'full' | 'short';
   playerTeam: string | null;
   onSetPlayerTeam: (teamName: string) => void;
   onShowHowToPlay: () => void;
@@ -46,8 +47,7 @@ const DriverPreview: React.FC<{ quote: UpcomingRaceQuote | null }> = ({ quote })
     );
 };
 
-const SetupScreen: React.FC<SetupScreenProps> = ({ season, onStartPracticeWeekend, standings, constructorStandings, onResetStandings, seasonTracks, currentRaceIndex, onSelectTeam, onShowHistory, onShowGarage, onShowHq, onSkipToOffSeason, upcomingRaceQuote, raceHistory, roster, onSetSeasonLength, playerTeam, onSetPlayerTeam, onShowHowToPlay }) => {
-  const [seasonLength, setSeasonLength] = useState<'full' | 'short'>('full');
+const SetupScreen: React.FC<SetupScreenProps> = ({ season, onStartPracticeWeekend, standings, constructorStandings, onResetStandings, seasonTracks, currentRaceIndex, onSelectTeam, onShowHistory, onShowGarage, onShowHq, onSkipToOffSeason, upcomingRaceQuote, raceHistory, roster, onSetSeasonLength, seasonLength, playerTeam, onSetPlayerTeam, onShowHowToPlay }) => {
   const currentTrack = seasonTracks[currentRaceIndex];
   
   const driverMap = useMemo(() => new Map(roster.map(d => [d.id, d.name])), [roster]);
@@ -69,7 +69,6 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ season, onStartPracticeWeeken
 
   const handleLengthChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const length = e.target.value as 'full' | 'short';
-      setSeasonLength(length);
       onSetSeasonLength(length);
   }
 

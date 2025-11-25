@@ -879,6 +879,7 @@ const App: React.FC = () => {
   const [carRatings, setCarRatings] = useState<{[key: string]: Car}>(CARS);
   const [rookiePool, setRookiePool] = useState<RookieDriver[]>(ROOKIE_POOL);
   const [affiliateCandidates, setAffiliateCandidates] = useState<AffiliateDriver[]>(AFFILIATE_CANDIDATES);
+  const [seasonLength, setSeasonLength] = useState<'full' | 'short'>('full');
   const [seasonTracks, setSeasonTracks] = useState<Track[]>(FULL_SEASON_TRACKS);
 
   const [raceState, setRaceState] = useState<RaceState>({
@@ -936,7 +937,7 @@ const App: React.FC = () => {
   const { standings, awardPoints, resetStandings } = useStandings(activeRoster);
   const { standings: constructorStandings, awardConstructorPoints, resetConstructorStandings } = useConstructorStandings(activeRoster);
   const { history: seasonHistory, archiveSeason, clearHistory } = useSeasonHistory();
-  const { history: raceHistory, recordWinner } = useRaceHistory();
+  const { history: raceHistory, recordWinner, clearRaceHistory } = useRaceHistory();
   const raceIntervalRef = useRef<number | null>(null);
   const highlightTimeoutRef = useRef<number | null>(null);
 
@@ -1022,11 +1023,16 @@ const App: React.FC = () => {
   };
   
   const handleSetSeasonLength = (length: 'full' | 'short') => {
-      if (length === 'short') {
-          setSeasonTracks(SHORT_SEASON_TRACKS);
-      } else {
-          setSeasonTracks(FULL_SEASON_TRACKS);
-      }
+      setSeasonLength(length);
+      const nextTracks = length === 'short' ? SHORT_SEASON_TRACKS : FULL_SEASON_TRACKS;
+      setSeasonTracks(nextTracks);
+      setCurrentRaceIndex(0);
+      setRaceState(prev => ({
+        ...prev,
+        track: nextTracks[0],
+        totalLaps: nextTracks[0].laps,
+        lap: 0,
+      }));
   };
 
   const handleStartPracticeWeekend = (track: Track) => {
@@ -1245,27 +1251,31 @@ const App: React.FC = () => {
 
   const handleProceedToNextRace = () => {
     const nextRaceIndex = currentRaceIndex + 1;
-    if (seasonTracks[nextRaceIndex]) {
-        const driverForPreview = 
-            standings.find(s => s.position === 1) ? roster.find(r => r.id === standings.find(s => s.position === 1)!.driverId) :
-            drivers.find(d => d.position === 1) ? roster.find(r => r.id === drivers.find(d => d.position === 1)!.id) :
-            roster.find(r => r.id === standings[0].driverId);
+    const nextTrack = seasonTracks[nextRaceIndex];
+    if (!nextTrack) {
+        handleProceedToOffSeason();
+        return;
+    }
 
-        const shouldGeneratePreview = Math.random() < 0.33;
+    const driverForPreview =
+        standings.find(s => s.position === 1) ? roster.find(r => r.id === standings.find(s => s.position === 1)!.driverId) :
+        drivers.find(d => d.position === 1) ? roster.find(r => r.id === drivers.find(d => d.position === 1)!.id) :
+        roster.find(r => r.id === standings[0].driverId);
 
-        if (driverForPreview && shouldGeneratePreview) {
-            const driverStanding = standings.find(s => s.driverId === driverForPreview.id)!;
-            const lastRacePos = drivers.find(d => d.id === driverForPreview.id)?.position;
+    const shouldGeneratePreview = Math.random() < 0.33;
 
-            generateAiDriverPreview(driverForPreview, driverStanding, lastRacePos || null, seasonTracks[nextRaceIndex])
-                .then(quote => setUpcomingRaceQuote(quote))
-                .catch(err => {
-                    console.error("Failed to get driver preview", err);
-                    setUpcomingRaceQuote(null);
-                });
-        } else {
-            setUpcomingRaceQuote(null);
-        }
+    if (driverForPreview && shouldGeneratePreview) {
+        const driverStanding = standings.find(s => s.driverId === driverForPreview.id)!;
+        const lastRacePos = drivers.find(d => d.id === driverForPreview.id)?.position;
+
+        generateAiDriverPreview(driverForPreview, driverStanding, lastRacePos || null, nextTrack)
+            .then(quote => setUpcomingRaceQuote(quote))
+            .catch(err => {
+                console.error("Failed to get driver preview", err);
+                setUpcomingRaceQuote(null);
+            });
+    } else {
+        setUpcomingRaceQuote(null);
     }
 
     setCurrentRaceIndex(prev => prev + 1);
@@ -1471,7 +1481,15 @@ const App: React.FC = () => {
       const poachedDriver = newDriverInFinalRoster && roster.find(r => r.id === newDriverInFinalRoster.id && r.status === 'Active');
 
       const playerTeamCar = CARS[Object.keys(CARS).find(k => CARS[k as keyof typeof CARS].teamName === playerTeam)! as keyof typeof CARS];
-      const playerFinalRosterWithCar = playerFinalRoster.map(d => ({...d, car: playerTeamCar, status: 'Active' as 'Active'}));
+      const playerFinalRosterWithCar = playerFinalRoster.map(d => ({
+          ...d,
+          car: playerTeamCar,
+          status: 'Active' as 'Active',
+          negotiationStatus: 'Signed' as const,
+          contractExpiresIn: Math.max(2, (d.contractExpiresIn ?? 1) + 1), // Protect against instant expiry after ageing
+          happiness: Math.min(100, (d.happiness ?? 70) + 5),
+          morale: Math.min(100, (d.morale ?? 70) + 5),
+      }));
       
       const oldPlayerDriverIds = originalPlayerRoster.map(d => d.id);
       const newPlayerDriverIds = playerFinalRosterWithCar.map(d => d.id);
@@ -1489,11 +1507,17 @@ const App: React.FC = () => {
           return d;
       });
 
+      const existingIds = new Set(intermediateRoster.map(d => d.id));
+      const newPlayerAdditions = playerFinalRosterWithCar.filter(d => !existingIds.has(d.id));
+      if (newPlayerAdditions.length > 0) {
+          intermediateRoster = [...intermediateRoster, ...newPlayerAdditions];
+      }
+
       if (poachedDriver) {
           addLog(`[Poach Confirmed!] You have successfully signed ${poachedDriver.name} from ${poachedDriver.car.teamName}!`);
       }
 
-      const { newRoster: finalRoster, log, rookiesUsed } = runDriverMarket(intermediateRoster, driverDebriefs, teamDebriefs, mvi, teamFinances, personnel, rookiePool, playerTeam!);
+      const { newRoster: finalRoster, log, rookiesUsed } = runDriverMarket(intermediateRoster, driverDebriefs, teamDebriefs, mvi, teamFinances, personnel, rookiePool, playerTeam!, season);
       
       setRoster(finalRoster);
       setDriverMarketLog(log);
@@ -1575,19 +1599,20 @@ const App: React.FC = () => {
     setRookiePool(prevPool => [...prevPool, ...newRookies]);
     
     const nextSeason = season + 1;
-    
+    const nextSeasonTracks = seasonLength === 'short' ? SHORT_SEASON_TRACKS : FULL_SEASON_TRACKS;
+
     setRoster(updatedRosterWithHistory);
     const activeRosterForNewSeason = updatedRosterWithHistory.filter(d => d.status === 'Active');
-    
-    setSeason(nextSeason); 
+
+    setSeason(nextSeason);
     setGamePhase(GamePhase.SETUP);
-    setCurrentRaceIndex(0); 
-    
+    setCurrentRaceIndex(0);
+
     resetStandings(activeRosterForNewSeason);
-    resetConstructorStandings(activeRosterForNewSeason); 
-    
-    setSeasonTracks(FULL_SEASON_TRACKS);
-    setDrivers([]); 
+    resetConstructorStandings(activeRosterForNewSeason);
+
+    setSeasonTracks(nextSeasonTracks);
+    setDrivers([]);
     setPracticeResults([]);
     setQualifyingResults([]);
     setQualifyingStage('Q1'); 
@@ -1611,15 +1636,17 @@ const App: React.FC = () => {
   };
   
   const handleResetAllStandings = useCallback(() => {
-    resetStandings(INITIAL_DRIVERS.filter(d => d.status === 'Active')); 
+    resetStandings(INITIAL_DRIVERS.filter(d => d.status === 'Active'));
     resetConstructorStandings(INITIAL_DRIVERS.filter(d => d.status === 'Active'));
-    setRoster(INITIAL_DRIVERS); 
-    setPersonnel(INITIAL_PERSONNEL); 
+    setRoster(INITIAL_DRIVERS);
+    setPersonnel(INITIAL_PERSONNEL);
     setCarRatings(CARS);
     setRookiePool(ROOKIE_POOL);
-    clearHistory(); 
-    setSeason(2025); 
+    clearHistory();
+    clearRaceHistory();
+    setSeason(2025);
     setCurrentRaceIndex(0);
+    setSeasonLength('full');
     setSeasonTracks(FULL_SEASON_TRACKS);
     setPlayerTeam(null);
     addLog('All championship, roster, personnel, and season history has been reset.');
@@ -1986,7 +2013,7 @@ const App: React.FC = () => {
       case GamePhase.TEAM_SELECTION:
         return <TeamSelectionScreen teams={teamsDataForSelection} onSelectTeam={handleSetPlayerTeam} onShowHowToPlay={() => setShowHowToPlay(true)} />;
       case GamePhase.SETUP:
-        return <SetupScreen season={season} onStartPracticeWeekend={handleStartPracticeWeekend} seasonTracks={seasonTracks} currentRaceIndex={currentRaceIndex} onSetSeasonLength={handleSetSeasonLength} standings={standings} constructorStandings={constructorStandings} onResetStandings={handleResetAllStandings} onSelectTeam={handleSelectTeam} onShowHistory={() => setShowHistoryScreen(true)} onShowGarage={() => setShowGarageScreen(true)} onShowHq={() => setShowHqScreen(true)} onSkipToOffSeason={handleSkipToOffSeason} upcomingRaceQuote={upcomingRaceQuote} raceHistory={raceHistory} roster={roster} playerTeam={playerTeam} onSetPlayerTeam={handleSetPlayerTeam} onShowHowToPlay={() => setShowHowToPlay(true)} />;
+        return <SetupScreen season={season} onStartPracticeWeekend={handleStartPracticeWeekend} seasonTracks={seasonTracks} currentRaceIndex={currentRaceIndex} onSetSeasonLength={handleSetSeasonLength} seasonLength={seasonLength} standings={standings} constructorStandings={constructorStandings} onResetStandings={handleResetAllStandings} onSelectTeam={handleSelectTeam} onShowHistory={() => setShowHistoryScreen(true)} onShowGarage={() => setShowGarageScreen(true)} onShowHq={() => setShowHqScreen(true)} onSkipToOffSeason={handleSkipToOffSeason} upcomingRaceQuote={upcomingRaceQuote} raceHistory={raceHistory} roster={roster} playerTeam={playerTeam} onSetPlayerTeam={handleSetPlayerTeam} onShowHowToPlay={() => setShowHowToPlay(true)} />;
       case GamePhase.PRACTICE:
         return <PracticeScreen results={practiceResults} roster={activeRoster} onProceed={handleProceedToQualifying} />;
       case GamePhase.QUALIFYING:
