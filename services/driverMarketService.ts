@@ -8,6 +8,19 @@ import { InitialDriver, DriverMarketEvent, RookieDriver, TeamFinances, TeamPerso
 import { CARS, DRIVER_TRAITS, TEAM_EXPECTATIONS } from '../constants';
 import { generateNewRookies } from './rookieService';
 
+const ROOKIE_FIRST_NAMES = ['Luca', 'Maya', 'Felix', 'Isabela', 'Noah', 'Arjun', 'Liam', 'Sophia', 'Mateo', 'Hana', 'Theo', 'Nia'];
+const ROOKIE_LAST_NAMES = ['Alvarez', 'Tanaka', 'Moretti', 'Okafor', 'Kuznetsov', 'Dubois', 'Hernandez', 'Ivanov', 'Petrov', 'Martinez', 'Singh', 'Bennett'];
+
+const generateUniqueRookieName = (existingNames: Set<string>): string => {
+    for (let i = 0; i < ROOKIE_FIRST_NAMES.length * ROOKIE_LAST_NAMES.length; i++) {
+        const first = ROOKIE_FIRST_NAMES[Math.floor(Math.random() * ROOKIE_FIRST_NAMES.length)];
+        const last = ROOKIE_LAST_NAMES[Math.floor(Math.random() * ROOKIE_LAST_NAMES.length)];
+        const candidate = `${first} ${last}`;
+        if (!existingNames.has(candidate)) return candidate;
+    }
+    return `Rookie ${Math.floor(100 + Math.random() * 900)}`;
+};
+
 type DriverCareerArc = 'Young Lion' | 'Proven Star' | 'Seasoned Veteran';
 type TeamTier = 'Contender' | 'Upper Midfield' | 'Lower Midfield' | 'Backmarker';
 
@@ -254,7 +267,8 @@ export const runDriverMarket = (
     teamFinances: TeamFinances[],
     personnel: TeamPersonnel[],
     rookiePool: RookieDriver[],
-    playerTeamName: string
+    playerTeamName: string,
+    season: number
 ): { newRoster: InitialDriver[], log: DriverMarketEvent[], rookiesUsed: string[] } => {
     
     let newRoster = JSON.parse(JSON.stringify(currentRoster)) as InitialDriver[];
@@ -312,6 +326,36 @@ export const runDriverMarket = (
         driver.negotiationStatus = undefined;
     });
 
+
+    const ensureCadillacSecuresDebutDrivers = () => {
+        if (season !== 2025) return;
+        const cadillacTeam = aiTeams.find(t => t.teamName === 'Cadillac Racing');
+        if (!cadillacTeam) return;
+
+        const cadillacFinance = teamFinances.find(f => f.teamName === 'Cadillac Racing');
+        const cadillacCar = CARS['Cadillac'];
+
+        if (!cadillacFinance || !cadillacCar) return;
+
+        const targetDrivers = newRoster
+            .filter(d => d.status === 'Free Agent' && d.car.teamName !== playerTeamName)
+            .sort((a, b) => b.driverSkills.overall - a.driverSkills.overall);
+
+        let cadillacDrivers = newRoster.filter(d => d.car.teamName === 'Cadillac Racing' && d.status === 'Active');
+        while (cadillacDrivers.length < 2 && targetDrivers.length > 0) {
+            const signing = targetDrivers.shift();
+            if (!signing) break;
+
+            signing.status = 'Active';
+            signing.car = cadillacCar;
+            signing.contractExpiresIn = 2;
+            cadillacFinance.driverAcquisitionFund = Math.max(0, cadillacFinance.driverAcquisitionFund - signing.salary);
+            log.push({ type: 'SIGNED', driverName: signing.name, toTeam: 'Cadillac Racing' });
+            cadillacDrivers = newRoster.filter(d => d.car.teamName === 'Cadillac Racing' && d.status === 'Active');
+        }
+    };
+
+    ensureCadillacSecuresDebutDrivers();
 
     // --- Phase 3: Free Agent & Rookie Signings for AI Teams ---
     for (let round = 0; round < 2; round++) {
@@ -388,10 +432,22 @@ export const runDriverMarket = (
                     teamFinance.driverAcquisitionFund -= newDriver.salary;
                 }
             } else {
+                 const existingNames = new Set<string>([
+                    ...newRoster.map(d => d.name),
+                    ...availableRookies.map(r => r.name),
+                    ...rookiesUsed
+                 ]);
+                 const generatedName = generateUniqueRookieName(existingNames);
                  const newRookieData: RookieDriver = {
-                    name: `G. Player ${Math.floor(100 + Math.random() * 900)}`, rawPace: 68, consistency: 72, potential: 'D', affiliation: 'None', sponsorship: 'Small'
+                    name: generatedName,
+                    rawPace: 68,
+                    consistency: 72,
+                    potential: 'D',
+                    affiliation: 'None',
+                    sponsorship: 'Small'
                 };
-                signRookieToTeam(newRookieData, team, newRoster, log, rookiesUsed);
+                const newDriver = signRookieToTeam(newRookieData, team, newRoster, log, rookiesUsed);
+                availableRookies = availableRookies.filter(r => r.name !== newDriver.name);
             }
             driversOnTeam = newRoster.filter(d => d.car.teamName === team.teamName && d.status === 'Active');
         }

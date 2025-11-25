@@ -40,7 +40,7 @@ export const useRaceHistory = () => {
         setHistory(prevHistory => {
             const newHistory = { ...prevHistory };
             const trackWinners = newHistory[trackName] || [];
-            
+
             // Add new winner, preventing duplicates for the same year
             const updatedWinners = [{ winnerId, year }, ...trackWinners.filter(w => w.year !== year)];
             newHistory[trackName] = updatedWinners;
@@ -48,5 +48,9 @@ export const useRaceHistory = () => {
         });
     };
 
-    return { history, recordWinner };
+    const clearRaceHistory = () => {
+        setHistory(getInitialHistory());
+    };
+
+    return { history, recordWinner, clearRaceHistory };
 };
