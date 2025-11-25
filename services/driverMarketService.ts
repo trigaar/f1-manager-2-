@@ -5,7 +5,7 @@
 
 
 import { InitialDriver, DriverMarketEvent, RookieDriver, TeamFinances, TeamPersonnel, TeamPrincipalPersonality, RookiePotential, DriverTrait, DriverTraitRarity, ShortlistDriver, TeamDebrief, DriverDebrief } from '../types';
-import { CARS, DRIVER_TRAITS, TEAM_EXPECTATIONS } from '../constants';
+import { CARS, DRIVER_TRAITS, TEAM_EXPECTATIONS, TEAM_COLORS } from '../constants';
 import { generateNewRookies } from './rookieService';
 
 const ROOKIE_FIRST_NAMES = ['Luca', 'Maya', 'Felix', 'Isabela', 'Noah', 'Arjun', 'Liam', 'Sophia', 'Mateo', 'Hana', 'Theo', 'Nia'];
@@ -275,6 +275,30 @@ export const runDriverMarket = (
     const log: DriverMarketEvent[] = [];
     let availableRookies = [...rookiePool];
     const rookiesUsed: string[] = [];
+    const ensureCadillacRepresentation = () => {
+        const hasCadillacDebrief = teamDebriefs.some(t => t.teamName === 'Cadillac Racing');
+        if (!hasCadillacDebrief) {
+            teamDebriefs.push({ teamName: 'Cadillac Racing', tpr: 80 });
+        }
+
+        const hasCadillacFinance = teamFinances.some(f => f.teamName === 'Cadillac Racing');
+        if (!hasCadillacFinance) {
+            teamFinances.push({
+                teamName: 'Cadillac Racing',
+                teamHexColor: TEAM_COLORS['Cadillac'].teamHexColor,
+                prizeMoney: { total: 0, lstBonus: 0, ccbBonus: 0, performancePayout: 0 },
+                sponsorshipIncome: 70_000_000,
+                driverSalaries: 0,
+                finalBudget: 70_000_000,
+                carDevelopmentBudget: 25_000_000,
+                personnelInvestment: 15_000_000,
+                driverAcquisitionFund: 30_000_000,
+            });
+        }
+    };
+
+    ensureCadillacRepresentation();
+
     const teamsSortedByTpr = [...teamDebriefs].sort((a, b) => b.tpr - a.tpr);
     const aiTeams = teamsSortedByTpr.filter(t => t.teamName !== playerTeamName);
 
