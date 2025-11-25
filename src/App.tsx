@@ -1539,14 +1539,27 @@ const App: React.FC = () => {
         return updatedDriver;
     });
 
-    if (season === 2025 && !personnel.some(p => p.teamName === 'Cadillac Racing')) {
+    const nextSeason = season + 1;
+    const isCadillacDebutSeason = season === 2025;
+    const maxExistingId = updatedRosterWithHistory.reduce((max, d) => Math.max(max, d.id), 0);
+    let nextDriverId = maxExistingId + 1;
+
+    const onboardCadillac = () => {
+        const hasCadillacDrivers = updatedRosterWithHistory.some(
+            d => d.car.teamName === 'Cadillac Racing' && d.status === 'Active'
+        );
+        if (!isCadillacDebutSeason || hasCadillacDrivers) return;
+
         addLog("A new challenger approaches! Cadillac Racing joins the grid for the 2026 season!");
 
         const cadillacCar: Car = CARS['Cadillac'];
         const cadillacPersonnel: TeamPersonnel = INITIAL_PERSONNEL.find(p => p.teamName === 'Cadillac Racing')!;
 
         setCarRatings(prev => ({ ...prev, Cadillac: cadillacCar }));
-        setPersonnel(prev => [...prev, cadillacPersonnel]);
+        setPersonnel(prev => {
+            const alreadyPresent = prev.some(p => p.teamName === 'Cadillac Racing');
+            return alreadyPresent ? prev : [...prev, cadillacPersonnel];
+        });
 
         const freeAgents = updatedRosterWithHistory
             .filter(d => d.status === 'Free Agent')
@@ -1565,25 +1578,259 @@ const App: React.FC = () => {
                 addLog(`${signing.name} has been signed by the new Cadillac Racing team!`);
             }
         });
-    }
-    
+
+        if (cadillacSignings.length < 2) {
+            const needed = 2 - cadillacSignings.length;
+            const rookieAdds = generateNewRookies(needed, rookiePool, updatedRosterWithHistory);
+            rookieAdds.forEach(rookie => {
+                const driver: InitialDriver = {
+                    id: nextDriverId++,
+                    name: rookie.name,
+                    shortName: rookie.name.split(' ').map(n => n[0]).join('').slice(0, 3).toUpperCase(),
+                    number: 90 + nextDriverId,
+                    driverSkills: {
+                        overall: Math.round((rookie.rawPace + rookie.consistency) / 2),
+                        qualifyingPace: rookie.rawPace,
+                        raceCraft: rookie.rawPace,
+                        tyreManagement: rookie.consistency,
+                        consistency: rookie.consistency,
+                        wetWeatherSkill: Math.max(70, rookie.consistency - 5),
+                        aggressionIndex: 70,
+                        incidentProneness: 80,
+                        loyalty: 75,
+                        potential: rookie.potential === 'A' ? 92 : rookie.potential === 'B' ? 88 : rookie.potential === 'C' ? 82 : 76,
+                        reputation: 60,
+                        trait: 'Rookie Prospect'
+                    },
+                    car: cadillacCar,
+                    rookie: true,
+                    age: 20,
+                    contractExpiresIn: 2,
+                    careerWins: 0,
+                    careerPodiums: 0,
+                    championships: 0,
+                    status: 'Active',
+                    peakDsv: 0,
+                    salary: 1_000_000,
+                    form: 0,
+                    happiness: 80,
+                    morale: 80,
+                    careerHistory: { [season + 1]: 'Cadillac Racing' }
+                };
+                updatedRosterWithHistory.push(driver);
+                addLog(`${driver.name} graduates directly into Cadillac Racing's debut lineup.`);
+            });
+        }
+    };
+
+    const promoteAffiliatesIntoVacancies = () => {
+        const teamNamesForGrid = Object.values(CARS)
+            .map(c => c.teamName)
+            .filter(name => nextSeason === 2025 ? name !== 'Cadillac Racing' : true);
+
+        let updatedPersonnelState = [...personnel];
+        let updatedAffiliateCandidates = [...affiliateCandidates];
+
+        const createAffiliateFromRookie = (): AffiliateDriver | null => {
+            const [freshAffiliate] = generateNewRookies(1, rookiePool, updatedRosterWithHistory);
+            if (!freshAffiliate) return null;
+            return {
+                name: freshAffiliate.name,
+                skill: Math.round((freshAffiliate.rawPace + freshAffiliate.consistency) / 2),
+                potential: freshAffiliate.potential === 'A' ? 95 : freshAffiliate.potential === 'B' ? 90 : 82,
+                age: 19,
+            };
+        };
+
+        const promoteAffiliate = (teamName: string) => {
+            const personnelEntry = updatedPersonnelState.find(p => p.teamName === teamName);
+            if (!personnelEntry?.affiliateDriver) return false;
+
+            const affiliate = personnelEntry.affiliateDriver;
+            const shortName = affiliate.name
+                .split(' ')
+                .map(n => n[0])
+                .join('')
+                .slice(0, 3)
+                .toUpperCase();
+            const car = Object.values(carRatings).find(c => c.teamName === teamName) ||
+                Object.values(CARS).find(c => c.teamName === teamName)!;
+
+            const driver: InitialDriver = {
+                id: nextDriverId++,
+                name: affiliate.name,
+                shortName,
+                number: 50 + nextDriverId,
+                driverSkills: {
+                    overall: affiliate.skill,
+                    qualifyingPace: affiliate.skill,
+                    raceCraft: affiliate.skill,
+                    tyreManagement: affiliate.skill - 2,
+                    consistency: affiliate.skill - 1,
+                    wetWeatherSkill: affiliate.skill - 3,
+                    aggressionIndex: 70,
+                    incidentProneness: 78,
+                    loyalty: 90,
+                    potential: affiliate.potential,
+                    reputation: Math.min(85, affiliate.skill),
+                    trait: 'Homegrown Prospect'
+                },
+                car,
+                rookie: true,
+                age: affiliate.age,
+                contractExpiresIn: 2,
+                careerWins: 0,
+                careerPodiums: 0,
+                championships: 0,
+                status: 'Active',
+                peakDsv: 0,
+                salary: 1_200_000,
+                form: 0,
+                happiness: 82,
+                morale: 82,
+                careerHistory: { [nextSeason]: teamName }
+            };
+
+            updatedRosterWithHistory.push(driver);
+            addLog(`${driver.name} has been promoted from affiliate to full-time driver for ${teamName}.`);
+
+            const replacementAffiliate = createAffiliateFromRookie();
+            personnelEntry.affiliateDriver = replacementAffiliate;
+            if (replacementAffiliate) {
+                updatedAffiliateCandidates = updatedAffiliateCandidates.filter(c => c.name !== replacementAffiliate.name);
+            }
+            return true;
+        };
+
+        teamNamesForGrid.forEach(teamName => {
+            let activeDrivers = updatedRosterWithHistory.filter(
+                d => d.car.teamName === teamName && d.status === 'Active'
+            );
+            if (activeDrivers.length >= 2) return;
+
+            const promoted = promoteAffiliate(teamName);
+            if (promoted) {
+                activeDrivers = updatedRosterWithHistory.filter(
+                    d => d.car.teamName === teamName && d.status === 'Active'
+                );
+            }
+
+            while (activeDrivers.length < 2) {
+                const [rookie] = generateNewRookies(1, rookiePool, updatedRosterWithHistory);
+                if (!rookie) break;
+                const shortName = rookie.name.split(' ').map(n => n[0]).join('').slice(0, 3).toUpperCase();
+                const car = Object.values(carRatings).find(c => c.teamName === teamName) ||
+                    Object.values(CARS).find(c => c.teamName === teamName)!;
+                const newDriver: InitialDriver = {
+                    id: nextDriverId++,
+                    name: rookie.name,
+                    shortName,
+                    number: 30 + nextDriverId,
+                    driverSkills: {
+                        overall: Math.round((rookie.rawPace + rookie.consistency) / 2),
+                        qualifyingPace: rookie.rawPace,
+                        raceCraft: rookie.rawPace,
+                        tyreManagement: rookie.consistency,
+                        consistency: rookie.consistency,
+                        wetWeatherSkill: Math.max(70, rookie.consistency - 5),
+                        aggressionIndex: 70,
+                        incidentProneness: 80,
+                        loyalty: 78,
+                        potential: rookie.potential === 'A' ? 92 : rookie.potential === 'B' ? 88 : rookie.potential === 'C' ? 82 : 76,
+                        reputation: 60,
+                        trait: 'Rookie Prospect'
+                    },
+                    car,
+                    rookie: true,
+                    age: 20,
+                    contractExpiresIn: 2,
+                    careerWins: 0,
+                    careerPodiums: 0,
+                    championships: 0,
+                    status: 'Active',
+                    peakDsv: 0,
+                    salary: 1_000_000,
+                    form: 0,
+                    happiness: 80,
+                    morale: 80,
+                    careerHistory: { [nextSeason]: teamName }
+                };
+                updatedRosterWithHistory.push(newDriver);
+                activeDrivers.push(newDriver);
+                addLog(`${newDriver.name} has been called up to ensure ${teamName} fields two cars.`);
+            }
+        });
+
+        setPersonnel(updatedPersonnelState);
+        setAffiliateCandidates(updatedAffiliateCandidates);
+    };
+
+    onboardCadillac();
+    promoteAffiliatesIntoVacancies();
+
     const retiredThisSeasonCount = driverMarketLog.filter(e => e.type === 'RETIRED').length;
     const numToGenerate = Math.max(2, retiredThisSeasonCount + Math.floor(Math.random() * 2));
     const newRookies = generateNewRookies(numToGenerate, rookiePool, roster);
     addLog(`${newRookies.length} new prospects have been added to the rookie pool.`);
     setRookiePool(prevPool => [...prevPool, ...newRookies]);
-    
-    const nextSeason = season + 1;
-    
-    setRoster(updatedRosterWithHistory);
+
+    const targetGridSize = nextSeason === 2025 ? 20 : 22;
     const activeRosterForNewSeason = updatedRosterWithHistory.filter(d => d.status === 'Active');
-    
-    setSeason(nextSeason); 
+    if (activeRosterForNewSeason.length < targetGridSize) {
+        const missing = targetGridSize - activeRosterForNewSeason.length;
+        const fillerRookies = generateNewRookies(missing, rookiePool, updatedRosterWithHistory);
+        fillerRookies.forEach(rookie => {
+            const shortName = rookie.name.split(' ').map(n => n[0]).join('').slice(0, 3).toUpperCase();
+            const teamName = Object.values(CARS).find(c => !activeRosterForNewSeason.some(d => d.car.teamName === c.teamName && d.status === 'Active'))?.teamName || playerTeam || 'McLaren Formula 1 Team';
+            const car = Object.values(carRatings).find(c => c.teamName === teamName) || Object.values(CARS).find(c => c.teamName === teamName)!;
+            const newDriver: InitialDriver = {
+                id: nextDriverId++,
+                name: rookie.name,
+                shortName,
+                number: 40 + nextDriverId,
+                driverSkills: {
+                    overall: Math.round((rookie.rawPace + rookie.consistency) / 2),
+                    qualifyingPace: rookie.rawPace,
+                    raceCraft: rookie.rawPace,
+                    tyreManagement: rookie.consistency,
+                    consistency: rookie.consistency,
+                    wetWeatherSkill: Math.max(70, rookie.consistency - 5),
+                    aggressionIndex: 70,
+                    incidentProneness: 80,
+                    loyalty: 78,
+                    potential: rookie.potential === 'A' ? 92 : rookie.potential === 'B' ? 88 : rookie.potential === 'C' ? 82 : 76,
+                    reputation: 60,
+                    trait: 'Rookie Prospect'
+                },
+                car,
+                rookie: true,
+                age: 20,
+                contractExpiresIn: 2,
+                careerWins: 0,
+                careerPodiums: 0,
+                championships: 0,
+                status: 'Active',
+                peakDsv: 0,
+                salary: 1_000_000,
+                form: 0,
+                happiness: 80,
+                morale: 80,
+                careerHistory: { [nextSeason]: car.teamName }
+            };
+            updatedRosterWithHistory.push(newDriver);
+            addLog(`${newDriver.name} joins the grid to keep the field at ${targetGridSize} drivers.`);
+        });
+    }
+
+    setRoster(updatedRosterWithHistory);
+    const refreshedActiveRoster = updatedRosterWithHistory.filter(d => d.status === 'Active');
+
+    setSeason(nextSeason);
     setGamePhase(GamePhase.SETUP);
-    setCurrentRaceIndex(0); 
-    
-    resetStandings(activeRosterForNewSeason);
-    resetConstructorStandings(activeRosterForNewSeason); 
+    setCurrentRaceIndex(0);
+
+    resetStandings(refreshedActiveRoster);
+    resetConstructorStandings(refreshedActiveRoster);
     
     setSeasonTracks(FULL_SEASON_TRACKS);
     setDrivers([]); 
