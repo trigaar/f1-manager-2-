@@ -81,7 +81,7 @@ const generatePrincipalQuote = (team: ConstructorStanding, principal: TeamPrinci
 };
 
 /**
- * Generates a local, data-driven season review to replace the Gemini API call.
+ * Generates a local, data-driven season review without any external API calls.
  * The function is named `generateAiSeasonReview` to act as a drop-in replacement
  * and minimize changes in the main App component.
  */

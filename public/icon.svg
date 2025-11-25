@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none">
+  <rect width="96" height="96" rx="18" fill="#0B0F19"/>
+  <path d="M18 64c12-4 18-18 24-30 6-12 12-20 24-22 6-1 12 1 12 1-8 5-12 14-16 22-5 10-10 20-18 24-10 6-22 5-26 5z" fill="#F43F5E"/>
+  <path d="M20 32h56v8H20z" fill="#EAB308" opacity=".9"/>
+  <path d="M24 46h32v6H24z" fill="#A5B4FC" opacity=".9"/>
+  <circle cx="64" cy="58" r="6" fill="#22D3EE"/>
+  <text x="48" y="82" text-anchor="middle" font-family="'Inter', 'Helvetica', sans-serif" font-size="16" fill="#F8FAFC" font-weight="700">F1M</text>
+</svg>
