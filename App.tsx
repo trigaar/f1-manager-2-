@@ -17,7 +17,6 @@ import { useConstructorStandings } from './hooks/useConstructorStandings';
 import { useSeasonHistory } from './hooks/useSeasonHistory';
 import { useRaceHistory } from './hooks/useRaceHistory';
 import { calculateTeamPrestige, calculateDriverStockValue, calculateMarketVolatilityIndex } from './services/postSeasonService';
-import { generateNewRookies } from './services/rookieService';
 import { runDriverProgression } from './services/driverProgressionService';
 import { runResourceAllocation } from './services/resourceAllocationService';
 import { runPracticeSession } from './services/practiceService';
@@ -25,6 +24,7 @@ import { generateAiRaceSummary } from './services/aiSummaryService';
 import { generateAiSeasonReview } from './services/aiSeasonReviewService';
 import { generateAiDriverPreview } from './services/aiDriverPreviewService';
 import { runAffiliateProgression, runAIAffiliateSignings } from './services/affiliateService';
+import { buildInitialRaceState, calculateNextSeasonTracks, createNewRookies, updateRosterForNewSeason } from './services/seasonResetService';
 import SetupScreen from './components/SetupScreen';
 import Leaderboard from './components/Leaderboard';
 import RaceControlPanel from './components/RaceControlPanel';
@@ -322,8 +322,8 @@ const calculateNextStates = (
             continue;
         }
         
-        let lapPerformanceModifier = (1 - driver.driverSkills.consistency / 125) * (Math.random() - 0.5) * 2; // -1 to 1 range, scaled by consistency
-        lapPerformanceModifier += (driver.form / 10); // Form has a stronger effect
+        let lapPerformanceModifier = (1 - driver.driverSkills.consistency / 110) * (Math.random() - 0.5) * 2.4; // -1 to 1 range, scaled by consistency
+        lapPerformanceModifier += (driver.form / 8); // Form has a stronger effect
         if (driver.driverSkills.trait?.id === 'CLUTCH_PERFORMER' && nextRaceState.lap > nextRaceState.totalLaps - 10) {
             lapPerformanceModifier -= 0.1; // Small boost in final laps
         }
@@ -595,14 +595,21 @@ const calculateNextStates = (
                 else if (currentTyre === TyreCompound.Wet && newWeather === 'Light Rain') baseLapTime += 6;
             } else if (!wasOnSlicks) baseLapTime += 12;
             baseLapTime += driver.fuelLoad * 0.03;
-            let wetWeatherEffect = (1.1 + (100 - driver.driverSkills.wetWeatherSkill) / 100 * 0.2);
+            const paceEdge = (driver.driverSkills.overall - 80) * 0.012;
+            const qualiSharpness = Math.max(0, driver.driverSkills.qualifyingPace - 80) * 0.007;
+            const focusDrag = (100 - driver.driverSkills.consistency) * 0.012;
+
+            baseLapTime -= paceEdge + qualiSharpness;
+            baseLapTime += focusDrag;
+
+            let wetWeatherEffect = (1.1 + (100 - driver.driverSkills.wetWeatherSkill) / 100 * 0.3);
             if (driver.driverSkills.trait?.id === 'RAIN_MASTER') wetWeatherEffect -= 0.1;
             if (isWet) baseLapTime *= wetWeatherEffect;
             if (newWeather === 'Extreme Rain') baseLapTime *= 1.15;
             if (nextRaceState.flag === RaceFlag.SafetyCar) baseLapTime *= 1.5;
             if (nextRaceState.flag === RaceFlag.VirtualSafetyCar) baseLapTime *= 1.3;
             if (driver.raceStatus === 'Damaged') baseLapTime *= 1.05;
-            baseLapTime += (100 - driver.driverSkills.raceCraft) * 0.017 + lapPerformanceModifier;
+            baseLapTime += (100 - driver.driverSkills.raceCraft) * 0.022 + lapPerformanceModifier;
             driver.lapTime = parseFloat(baseLapTime.toFixed(3));
             if (driver.raceStatus === 'Racing' && nextRaceState.flag === RaceFlag.Green && (!fastestLap || driver.lapTime < fastestLap.time)) {
                 setFastestLap({ driverName: driver.name, time: driver.lapTime });
@@ -618,7 +625,7 @@ const calculateNextStates = (
 
         const trackStressModifier = 0.7 + (nextRaceState.track.tyreStress / 5) * 0.6;
         const baseDeg = (100 / (TYRE_LIFE[driver.currentTyres.compound] || 30)) * trackStressModifier;
-        let driverTyreMultiplier = 1.6 - (driver.driverSkills.tyreManagement / 100);
+        let driverTyreMultiplier = Math.max(0.6, 1.8 - (driver.driverSkills.tyreManagement / 90));
         if (driver.driverSkills.trait?.id === 'TYRE_WHISPERER') driverTyreMultiplier -= 0.4;
         const carTyreMultiplier = 1.3 - (driver.car.tyreWearFactor / 100);
         let degradation = baseDeg * driverTyreMultiplier * carTyreMultiplier;
@@ -663,7 +670,7 @@ const calculateNextStates = (
             const needsStrategicStop = areTyresCritical || isPlannedPitLap || shouldAttemptUndercut;
 
             if (needsStrategicStop) {
-                let tyreLifeMultiplier = 1.6 - (driver.driverSkills.tyreManagement / 100);
+                let tyreLifeMultiplier = Math.max(0.7, 1.8 - (driver.driverSkills.tyreManagement / 90));
                 if (driver.driverSkills.trait?.id === 'TYRE_WHISPERER') tyreLifeMultiplier += 0.2;
                 const adjustedTyreLife = TYRE_LIFE[driver.currentTyres.compound] * tyreLifeMultiplier;
                 const lapsLeftOnTyre = adjustedTyreLife * (1 - driver.currentTyres.wear / 100);
@@ -718,16 +725,16 @@ const calculateNextStates = (
                     let attackingProwess = 0;
                     let defensiveSkill = 0;
                     
-                    attackingProwess += attacker.driverSkills.raceCraft * 1.2;
+                    attackingProwess += attacker.driverSkills.raceCraft * 1.4;
                     if (attacker.driverSkills.trait?.id === 'THE_OVERTAKER') attackingProwess += 10;
-                    attackingProwess += (attacker.driverSkills.aggressionIndex - 75) * 0.2;
+                    attackingProwess += (attacker.driverSkills.aggressionIndex - 75) * 0.3;
                     attackingProwess += (attacker.car.overallPace - 85) * 0.5;
                     if (attacker.paceMode === 'Pushing') attackingProwess += 8;
                     if (attacker.paceMode === 'Conserving') attackingProwess -= 5;
-                    
-                    defensiveSkill += defender.driverSkills.raceCraft;
+
+                    defensiveSkill += defender.driverSkills.raceCraft * 1.2;
                     if (defender.driverSkills.trait?.id === 'THE_WALL') defensiveSkill += 10;
-                    defensiveSkill += (defender.driverSkills.consistency - 85) * 0.3;
+                    defensiveSkill += (defender.driverSkills.consistency - 85) * 0.45;
                     defensiveSkill += (defender.car.overallPace - 85) * 0.5;
                     if (defender.paceMode === 'Conserving') defensiveSkill -= 8;
                     
@@ -747,7 +754,7 @@ const calculateNextStates = (
                     
                     let attackerUsedERS = false;
                     let defenderUsedERS = false;
-                    const ersAttackChance = 0.3 + ((attackingProwess - defensiveSkill) / 100) + (attacker.driverSkills.aggressionIndex / 300);
+                    const ersAttackChance = 0.28 + ((attackingProwess - defensiveSkill) / 80) + (attacker.driverSkills.aggressionIndex / 250);
                     if (attacker.ersCharge >= 20 && Math.random() < ersAttackChance) {
                         attackingProwess += 15;
                         attackerUsedERS = true;
@@ -1572,34 +1579,27 @@ const App: React.FC = () => {
      setOffSeasonPhase('CAR_DEVELOPMENT');
   };
 
-  const handleStartNewSeason = () => {
-    let updatedRosterWithHistory = roster.map(driver => {
-        const newHistory = { ...driver.careerHistory };
-        newHistory[season + 1] = driver.status === 'Active' ? driver.car.teamName : 'Free Agent';
-        // Reset salary based on new reputation and DSV
-        const driverDebrief = driverDebriefs.find(d => d.driverId === driver.id);
-        let newSalary = driver.salary;
-        if (driver.contractExpiresIn <= 0 && driverDebrief) {
-            newSalary = Math.round(500000 + (driver.driverSkills.reputation * 50000) + (driverDebrief.dsv * 100000));
-        }
+  const handleStartNewSeason = useCallback(() => {
+    // Ensure no stray timers from the previous season keep mutating state while we reset.
+    if (raceIntervalRef.current) {
+      clearInterval(raceIntervalRef.current);
+      raceIntervalRef.current = null;
+    }
+    if (highlightTimeoutRef.current) {
+      clearTimeout(highlightTimeoutRef.current);
+      highlightTimeoutRef.current = null;
+    }
 
-        const updatedDriver = { ...driver, careerHistory: newHistory, seasonRaceRatings: [], salary: newSalary };
-        
-        const teamKey = Object.keys(carRatings).find((key: string) => carRatings[key as keyof typeof carRatings].teamName === updatedDriver.car.teamName);
-        if (teamKey) {
-            return { ...updatedDriver, car: carRatings[teamKey] };
-        }
-        return updatedDriver;
-    });
-    
+    const updatedRosterWithHistory = updateRosterForNewSeason(roster, driverDebriefs, carRatings, season);
+
     const retiredThisSeasonCount = driverMarketLog.filter(e => e.type === 'RETIRED').length;
-    const numToGenerate = Math.max(2, retiredThisSeasonCount + Math.floor(Math.random() * 2));
-    const newRookies = generateNewRookies(numToGenerate, rookiePool, roster);
+    const newRookies = createNewRookies(retiredThisSeasonCount, rookiePool, updatedRosterWithHistory);
     addLog(`${newRookies.length} new prospects have been added to the rookie pool.`);
     setRookiePool(prevPool => [...prevPool, ...newRookies]);
-    
+
     const nextSeason = season + 1;
-    const nextSeasonTracks = seasonLength === 'short' ? SHORT_SEASON_TRACKS : FULL_SEASON_TRACKS;
+    const nextSeasonTracks = calculateNextSeasonTracks(seasonLength);
+    const initialRaceState = buildInitialRaceState(nextSeasonTracks);
 
     setRoster(updatedRosterWithHistory);
     const activeRosterForNewSeason = updatedRosterWithHistory.filter(d => d.status === 'Active');
@@ -1612,28 +1612,46 @@ const App: React.FC = () => {
     resetConstructorStandings(activeRosterForNewSeason);
 
     setSeasonTracks(nextSeasonTracks);
+    setRaceState(initialRaceState);
     setDrivers([]);
     setPracticeResults([]);
     setQualifyingResults([]);
-    setQualifyingStage('Q1'); 
-    setQ2Drivers([]); 
-    setQ3Drivers([]); 
+    setQualifyingStage('Q1');
+    setQ2Drivers([]);
+    setQ3Drivers([]);
+    setRaceLapEvents([]);
     setFastestLap(null);
+    setAiSummary(null);
+    setIsGeneratingSummary(false);
+    setUpcomingRaceQuote(null);
     setAiSeasonReview(null);
-    setTeamFinances([]); 
-    setTeamDebriefs([]); 
+    setIsGeneratingSeasonReview(false);
+    setTeamFinances([]);
+    setTeamDebriefs([]);
     setDriverDebriefs([]);
     setPlayerShortlist([]);
     setDriverProgressionLog([]);
     setResourceAllocationLog([]);
     setMvi(0);
-    setStaffingLog([]); 
+    setStaffingLog([]);
     setDriverMarketLog([]);
+    setAffiliateLog([]);
     setRegulationChangeLog([]);
-    setDevResults([]); 
+    setDevResults([]);
     setOffSeasonPhase('DEBRIEF');
     setLog([`Welcome to the ${nextSeason} season! Please select a track to begin.`]);
-  };
+  }, [
+    addLog,
+    carRatings,
+    driverDebriefs,
+    driverMarketLog,
+    resetConstructorStandings,
+    resetStandings,
+    rookiePool,
+    roster,
+    season,
+    seasonLength,
+  ]);
   
   const handleResetAllStandings = useCallback(() => {
     resetStandings(INITIAL_DRIVERS.filter(d => d.status === 'Active'));
