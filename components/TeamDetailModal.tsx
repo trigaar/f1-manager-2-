@@ -1,7 +1,21 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { InitialDriver, Car, TeamPersonnel, Driver, DriverSkills, DriverTraitRarity } from '../types';
 import { getTeamColors } from '../constants';
+
+const attributeColors: Record<string, string> = {
+    overall: '#38bdf8',
+    qualifyingPace: '#a855f7',
+    raceCraft: '#f97316',
+    tyreManagement: '#22c55e',
+    consistency: '#facc15',
+    wetWeatherSkill: '#0ea5e9',
+    aggressionIndex: '#ef4444',
+    incidentProneness: '#94a3b8',
+    loyalty: '#fb7185',
+    potential: '#8b5cf6',
+    reputation: '#38bdf8',
+};
 
 const StatBar: React.FC<{ label: string; value: number; color: string }> = ({ label, value, color }) => (
   <div className="mb-2">
@@ -18,6 +32,71 @@ const StatBar: React.FC<{ label: string; value: number; color: string }> = ({ la
 const formatAttributeName = (attr: string) => {
     return attr.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
 }
+
+const RadarChart: React.FC<{ attributes: (keyof DriverSkills)[]; values: number[] }> = ({ attributes, values }) => {
+    const size = 240;
+    const center = size / 2;
+    const radius = 85;
+
+    const points = attributes.map((_, idx) => {
+        const angle = (2 * Math.PI * idx / attributes.length) - Math.PI / 2;
+        const value = values[idx] || 0;
+        const r = (value / 100) * radius;
+        const x = center + r * Math.cos(angle);
+        const y = center + r * Math.sin(angle);
+        return `${x},${y}`;
+    }).join(' ');
+
+    const gridRings = [0.4, 0.6, 0.8, 1];
+
+    return (
+        <svg viewBox={`0 0 ${size} ${size}`} className="w-full h-56">
+            {gridRings.map((ring, i) => (
+                <polygon
+                    key={ring}
+                    points={attributes.map((_, idx) => {
+                        const angle = (2 * Math.PI * idx / attributes.length) - Math.PI / 2;
+                        const r = ring * radius;
+                        const x = center + r * Math.cos(angle);
+                        const y = center + r * Math.sin(angle);
+                        return `${x},${y}`;
+                    }).join(' ')}
+                    fill="none"
+                    stroke="rgba(148, 163, 184, 0.35)"
+                    strokeWidth={i === gridRings.length - 1 ? 1.5 : 1}
+                />
+            ))}
+
+            <polygon
+                points={points}
+                fill="rgba(56, 189, 248, 0.2)"
+                stroke="#38bdf8"
+                strokeWidth="2"
+            />
+
+            {attributes.map((attr, idx) => {
+                const angle = (2 * Math.PI * idx / attributes.length) - Math.PI / 2;
+                const r = (values[idx] / 100) * radius + 12;
+                const x = center + r * Math.cos(angle);
+                const y = center + r * Math.sin(angle);
+                return (
+                    <text
+                        key={attr}
+                        x={x}
+                        y={y}
+                        fill="#e5e7eb"
+                        fontSize="10"
+                        textAnchor="middle"
+                        alignmentBaseline="middle"
+                        className="drop-shadow-sm"
+                    >
+                        {formatAttributeName(attr)}
+                    </text>
+                );
+            })}
+        </svg>
+    );
+};
 
 const TraitDisplay: React.FC<{ trait: InitialDriver['driverSkills']['trait'] }> = ({ trait }) => {
     if (!trait) return null;
@@ -50,6 +129,7 @@ interface TeamDetailModalProps {
 }
 
 const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ isOpen, onClose, team }) => {
+  const [chartMode, setChartMode] = useState<'bar' | 'radar'>('bar');
   if (!isOpen || !team) return null;
 
   const { teamHexColor } = getTeamColors(team.car.teamName);
@@ -62,6 +142,8 @@ const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ isOpen, onClose, team
   }
   
   const driverSkillsOrder: (keyof DriverSkills)[] = ['overall', 'qualifyingPace', 'raceCraft', 'tyreManagement', 'consistency', 'wetWeatherSkill', 'aggressionIndex', 'incidentProneness', 'loyalty', 'reputation'];
+
+  const numericSkillAttributes = driverSkillsOrder;
 
   return (
     <div 
@@ -78,13 +160,34 @@ const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ isOpen, onClose, team
         </div>
 
         <div className="p-6">
-            <h3 className="text-xl font-semibold mb-4 text-gray-300 uppercase tracking-wider">Drivers</h3>
+            <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-semibold text-gray-300 uppercase tracking-wider">Drivers</h3>
+                <div className="flex bg-gray-700/70 rounded-lg overflow-hidden border border-gray-600">
+                    <button
+                        className={`px-3 py-2 text-sm font-semibold ${chartMode === 'bar' ? 'bg-gray-600 text-white' : 'text-gray-300 hover:text-white'}`}
+                        onClick={() => setChartMode('bar')}
+                    >
+                        Bar
+                    </button>
+                    <button
+                        className={`px-3 py-2 text-sm font-semibold ${chartMode === 'radar' ? 'bg-gray-600 text-white' : 'text-gray-300 hover:text-white'}`}
+                        onClick={() => setChartMode('radar')}
+                    >
+                        Radar
+                    </button>
+                </div>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {team.drivers.map(driver => {
                     const seasonRatings = 'seasonRaceRatings' in driver && driver.seasonRaceRatings ? driver.seasonRaceRatings : [];
                     const avgSeasonRating = seasonRatings.length > 0
                         ? seasonRatings.reduce((a, b) => a + b, 0) / seasonRatings.length
                         : null;
+
+                    const skillValues = numericSkillAttributes.map((attr) => {
+                        const value = driver.driverSkills[attr];
+                        return typeof value === 'number' ? value : 0;
+                    });
 
                     return (
                         <div key={driver.id} className="bg-gray-900/50 p-4 rounded-lg">
@@ -117,20 +220,24 @@ const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ isOpen, onClose, team
                                     <p className="text-2xl font-bold text-yellow-400">{driver.championships || 0}</p>
                                 </div>
                             </div>
-                            {driverSkillsOrder.map((key) => {
-                                const value = driver.driverSkills[key];
-                                if(typeof value === 'number') {
-                                    return (
-                                        <StatBar 
-                                            key={key} 
-                                            label={formatAttributeName(key)} 
-                                            value={value} 
-                                            color={teamHexColor}
-                                        />
-                                    )
-                                }
-                                return null;
-                            })}
+                            {chartMode === 'bar' ? (
+                                driverSkillsOrder.map((key) => {
+                                    const value = driver.driverSkills[key];
+                                    if(typeof value === 'number') {
+                                        return (
+                                            <StatBar
+                                                key={key}
+                                                label={formatAttributeName(key)}
+                                                value={value}
+                                                color={attributeColors[key] || '#38bdf8'}
+                                            />
+                                        )
+                                    }
+                                    return null;
+                                })
+                            ) : (
+                                <RadarChart attributes={numericSkillAttributes} values={skillValues} />
+                            )}
                              <TraitDisplay trait={driver.driverSkills.trait} />
                             <h4 className="text-sm font-semibold mt-4 mb-2 text-gray-400 uppercase tracking-wider">Career History</h4>
                             <div className="text-xs text-gray-300 space-y-1 max-h-24 overflow-y-auto bg-gray-700/50 p-2 rounded-md">

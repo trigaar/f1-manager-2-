@@ -50,7 +50,7 @@ Set `GEMINI_API_KEY` in `.env.local` to enable the Gemini-powered summaries.
 
 ## Gameplay flow at a glance
 
-The core loop progresses through clearly defined phases for each grand prix weekend and the off-season. Key stage constants live in `src/types.ts` (`GamePhase` and `OffSeasonPhase`), and the primary UI routing occurs inside `App.tsx`.
+The core loop progresses through clearly defined phases for each grand prix weekend and the off-season. Key stage constants live in `types.ts` (`GamePhase` and `OffSeasonPhase`), and the primary UI routing occurs inside `App.tsx`.
 
 - **Team selection and setup** – choose a team, set season length, and pick the next track to start the weekend.
   - The chosen calendar length (full or short) now persists when you advance to the next season; resetting standings restores the full calendar.
@@ -77,6 +77,6 @@ The core loop progresses through clearly defined phases for each grand prix week
 
 - The entire game loop lives in a single, ~2000-line `App.tsx` file. Season transitions, off-season phases, and race/weekend resets all mutate shared state; regressions often stem from missing resets or stale references.
 - Season-to-season continuity is fragile: onboarding new entrants (e.g., Cadillac), repopulating rookies, and resetting race/qualifying/practice caches all occur in `handleStartNewSeason`. Any overlooked state (tracks, finances, AI summaries, shortlist data, etc.) can leave the simulation in an inconsistent state when starting the following year.
-- There are two `App.tsx` files (one at repo root referenced by `index.tsx`, and another under `src/`). Aligning to a single source of truth will reduce confusion when patching season-flow bugs.
+- `App.tsx` at the repository root is the single entry point referenced by `index.tsx`, removing the previous duplication under `src/`.
 
 Use this README as a map while you audit the off-season and season-reset code paths to locate and fix the deep bugs preventing progression to the next year.
