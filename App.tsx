@@ -1212,6 +1212,14 @@ const App: React.FC = () => {
   }, [hqEvent, mergeHqEffects, playerTeam, addLog]);
 
   const handleSetPlayerTeam = (teamName: string) => {
+    // Clear any team-specific weekend or HQ state before switching control so
+    // the new club does not inherit pending effects from the previous team.
+    setActiveHqModifiers(null);
+    setPendingHqImpact(null);
+    setHqEvent(null);
+    setHqEventRaceKey(null);
+    setWeekendModifiers([]);
+
     setPlayerTeam(teamName);
     addLog(`You have taken control of ${teamName}. Good luck!`);
     addLog(`The initial ${season} season will be simulated based on default settings. Your management decisions will begin in the off-season.`);
@@ -1520,6 +1528,7 @@ const App: React.FC = () => {
     setActiveHqModifiers(null);
     setPendingHqImpact(null);
     setHqEvent(null);
+    setHqEventRaceKey(null);
     setWeekendModifiers([]);
     addLog(`The ${season} season has concluded. Generating season review...`);
     setIsGeneratingSeasonReview(true);
@@ -1892,6 +1901,7 @@ const App: React.FC = () => {
     setActiveHqModifiers(null);
     setPendingHqImpact(null);
     setHqEvent(null);
+    setHqEventRaceKey(null);
     setWeekendModifiers([]);
     clearHistory();
     clearRaceHistory();
