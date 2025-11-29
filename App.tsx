@@ -1492,8 +1492,7 @@ const App: React.FC = () => {
         return;
     }
 
-    setActiveHqModifiers(null);
-    setWeekendModifiers([]);
+    clearHeadquartersState();
 
     const driverForPreview =
         standings.find(s => s.position === 1) ? roster.find(r => r.id === standings.find(s => s.position === 1)!.driverId) :
@@ -1529,11 +1528,7 @@ const App: React.FC = () => {
   };
   
   const handleProceedToOffSeason = () => {
-    setActiveHqModifiers(null);
-    setPendingHqImpact(null);
-    setHqEvent(null);
-    setHqEventRaceKey(null);
-    setWeekendModifiers([]);
+    clearHeadquartersState();
     addLog(`The ${season} season has concluded. Generating season review...`);
     setIsGeneratingSeasonReview(true);
 
@@ -1596,6 +1591,7 @@ const App: React.FC = () => {
   };
 
   const handleSkipToOffSeason = () => {
+    clearHeadquartersState();
     addLog(`The ${season} season has been manually concluded. Proceeding to review.`);
     setIsGeneratingSeasonReview(true);
     
