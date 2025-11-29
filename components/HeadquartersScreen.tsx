@@ -143,31 +143,24 @@ const HeadquartersScreen: React.FC<HeadquartersScreenProps> = ({ isOpen, onClose
                     {(event || pendingImpact || activeImpact) && (
                         <div className="space-y-3 mb-6">
                             {event && (
-                                <div className="bg-indigo-900/40 border border-indigo-600/70 rounded-xl p-5 shadow-lg">
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div>
-                                            <p className="text-xs uppercase font-bold text-indigo-200 tracking-wide">Headquarters Event</p>
-                                            <h3 className="text-xl font-bold text-white mt-1">{event.title}</h3>
-                                            <p className="text-sm text-gray-200 mb-3 leading-relaxed">{event.description}</p>
-                                        </div>
-                                        <span className="px-3 py-1 rounded-full bg-white/10 text-[11px] uppercase text-indigo-100 border border-indigo-300/50">Decision Needed</span>
-                                    </div>
+                                <div className="bg-indigo-900/50 border border-indigo-600 rounded-lg p-4 shadow-lg">
+                                    <p className="text-xs uppercase font-bold text-indigo-200">Headquarters Event</p>
+                                    <h3 className="text-xl font-bold text-white mt-1">{event.title}</h3>
+                                    <p className="text-sm text-gray-200 mb-3">{event.description}</p>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                         {event.choices.map(choice => (
-                                            <div key={choice.id} className="bg-gray-900/70 rounded-md p-3 border border-gray-700/70 flex flex-col justify-between gap-2">
-                                                <div>
-                                                    <div className="flex items-center justify-between mb-1">
-                                                        <h4 className="font-semibold text-white text-sm">{choice.label}</h4>
-                                                        {choice.risk && (
-                                                            <span className="text-xs text-amber-300 font-semibold">{Math.round(choice.risk.probability * 100)}% risk</span>
-                                                        )}
-                                                    </div>
-                                                    <p className="text-sm text-gray-300 mb-2 leading-snug">{choice.summary}</p>
-                                                    {choice.risk?.summary && <p className="text-xs text-amber-200">⚠ {choice.risk.summary}</p>}
+                                            <div key={choice.id} className="bg-gray-900/60 rounded-md p-3 border border-gray-700">
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <h4 className="font-semibold text-white text-sm">{choice.label}</h4>
+                                                    {choice.risk && (
+                                                        <span className="text-xs text-amber-300 font-semibold">{Math.round(choice.risk.probability * 100)}% risk</span>
+                                                    )}
                                                 </div>
+                                                <p className="text-sm text-gray-300 mb-2">{choice.summary}</p>
+                                                {choice.risk?.summary && <p className="text-xs text-amber-200">⚠ {choice.risk.summary}</p>}
                                                 <button
                                                     onClick={() => onResolveEvent(event.id, choice.id)}
-                                                    className="w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded"
+                                                    className="mt-2 w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded"
                                                 >
                                                     Apply Choice
                                                 </button>
@@ -179,64 +172,17 @@ const HeadquartersScreen: React.FC<HeadquartersScreenProps> = ({ isOpen, onClose
                             {pendingImpact && (
                                 <div className="bg-blue-900/40 border border-blue-700 rounded-lg p-3 text-sm text-blue-100">
                                     <p className="font-semibold">Queued for next race: {pendingImpact.title}</p>
-                                    <p className="text-xs text-blue-200 mb-1">{pendingImpact.summary}</p>
-                                    {buildModifierLines(pendingImpact).length > 0 && (
-                                        <ul className="text-[11px] text-blue-100 list-disc list-inside space-y-0.5">
-                                            {buildModifierLines(pendingImpact).map(line => <li key={line}>{line}</li>)}
-                                        </ul>
-                                    )}
+                                    <p className="text-xs text-blue-200">{pendingImpact.summary}</p>
                                 </div>
                             )}
                             {activeImpact && (
                                 <div className="bg-emerald-900/40 border border-emerald-700 rounded-lg p-3 text-sm text-emerald-100">
                                     <p className="font-semibold">Active this weekend: {activeImpact.title}</p>
-                                    <p className="text-xs text-emerald-200 mb-1">{activeImpact.summary}</p>
-                                    {buildModifierLines(activeImpact).length > 0 && (
-                                        <ul className="text-[11px] text-emerald-100 list-disc list-inside space-y-0.5">
-                                            {buildModifierLines(activeImpact).map(line => <li key={line}>{line}</li>)}
-                                        </ul>
-                                    )}
+                                    <p className="text-xs text-emerald-200">{activeImpact.summary}</p>
                                 </div>
                             )}
                         </div>
                     )}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
-                        <div className="bg-gray-900/60 border border-gray-800 rounded-lg p-3">
-                            <p className="text-xs uppercase text-gray-400 mb-1">HQ Pulse</p>
-                            <p className="text-sm text-gray-200">Team morale <span className="font-semibold text-white">{moraleAverage.toFixed(0)}%</span></p>
-                            <p className="text-sm text-gray-200">Driver happiness <span className="font-semibold text-white">{happinessAverage.toFixed(0)}%</span></p>
-                            <p className="text-[11px] text-gray-400 mt-1">Keep both above 70% to avoid contract tension.</p>
-                        </div>
-                        <div className="bg-gray-900/60 border border-gray-800 rounded-lg p-3">
-                            <p className="text-xs uppercase text-gray-400 mb-1">Event Readiness</p>
-                            <p className="text-sm text-gray-100">
-                                {event ? 'Decision awaiting in HQ' : pendingImpact ? 'Impact queued for next race' : activeImpact ? 'Modifier active this weekend' : 'No HQ events pending'}
-                            </p>
-                            <p className="text-[11px] text-gray-400">Weekend impacts auto-apply when the race key matches the queued effect.</p>
-                        </div>
-                        <div className="bg-gray-900/60 border border-gray-800 rounded-lg p-3">
-                            <p className="text-xs uppercase text-gray-400 mb-1">Impact Preview</p>
-                            {(buildModifierLines(activeImpact).length === 0 && buildModifierLines(pendingImpact).length === 0) && (
-                                <p className="text-sm text-gray-300">No performance deltas currently applied.</p>
-                            )}
-                            {buildModifierLines(activeImpact).length > 0 && (
-                                <div className="mb-1">
-                                    <p className="text-[11px] text-emerald-200 uppercase">Active</p>
-                                    <ul className="text-xs text-emerald-100 list-disc list-inside space-y-0.5">
-                                        {buildModifierLines(activeImpact).map(line => <li key={`active-${line}`}>{line}</li>)}
-                                    </ul>
-                                </div>
-                            )}
-                            {buildModifierLines(pendingImpact).length > 0 && (
-                                <div>
-                                    <p className="text-[11px] text-blue-200 uppercase">Queued</p>
-                                    <ul className="text-xs text-blue-100 list-disc list-inside space-y-0.5">
-                                        {buildModifierLines(pendingImpact).map(line => <li key={`pending-${line}`}>{line}</li>)}
-                                    </ul>
-                                </div>
-                            )}
-                        </div>
-                    </div>
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         {/* Left Column: Team & Facilities */}
                         <div className="lg:col-span-1 space-y-4">
