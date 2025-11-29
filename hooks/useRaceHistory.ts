@@ -52,5 +52,10 @@ export const useRaceHistory = () => {
         setHistory(getInitialHistory());
     };
 
-    return { history, recordWinner, clearRaceHistory };
+    const hydrateRaceHistory = (loadedHistory: RaceHistory) => {
+        if (!loadedHistory || typeof loadedHistory !== 'object') return;
+        setHistory(loadedHistory);
+    };
+
+    return { history, recordWinner, clearRaceHistory, hydrateRaceHistory };
 };

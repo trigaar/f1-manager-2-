@@ -85,5 +85,12 @@ export const useStandings = (roster: InitialDriver[]) => {
         setStandings(getDefaultStandings(currentRoster));
     };
 
-    return { standings, awardPoints, resetStandings };
+    const hydrateStandings = (loadedStandings: DriverStanding[]) => {
+        if (!Array.isArray(loadedStandings) || loadedStandings.length === 0) {
+            return;
+        }
+        setStandings(loadedStandings);
+    };
+
+    return { standings, awardPoints, resetStandings, hydrateStandings };
 };

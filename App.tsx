@@ -28,6 +28,7 @@ import { runAffiliateProgression, runAIAffiliateSignings } from './services/affi
 import { buildInitialRaceState, calculateNextSeasonTracks, createNewRookies, updateRosterForNewSeason } from './services/seasonResetService';
 import { calculateCarLinkImpact } from './services/carLinkService';
 import { rollPreRaceEventForTeam } from './services/preRaceEventService';
+import { applyLoadedGameState, GameSaveState, generateSaveCode, getCurrentGameState, loadFromSaveCode, SaveStateSetters } from './services/saveSystem';
 import SetupScreen from './components/SetupScreen';
 import Leaderboard from './components/Leaderboard';
 import RaceControlPanel from './components/RaceControlPanel';
@@ -266,6 +267,19 @@ const sanitizeDriverState = (driver: Driver, baseLapRef: number, track: Track): 
         penalties: driver.penalties || [],
         compoundsUsed: driver.compoundsUsed?.length ? driver.compoundsUsed : [fallbackTyre],
         raceStatus: driver.raceStatus || 'Racing',
+    };
+};
+
+const sanitizeLapTiming = (driver: Driver, baseLapRef: number): Driver => {
+    const safeLapTime = clampNumber(driver.lapTime ?? baseLapRef, baseLapRef, 40, 400);
+    const safeTotalTime = clampNumber(driver.totalRaceTime ?? safeLapTime, safeLapTime, 0, Number.MAX_SAFE_INTEGER);
+    const safeGap = Number.isFinite(driver.gapToLeader) && driver.gapToLeader >= 0 ? driver.gapToLeader : 0;
+
+    return {
+        ...driver,
+        lapTime: safeLapTime,
+        totalRaceTime: safeTotalTime,
+        gapToLeader: safeGap,
     };
 };
 
@@ -978,6 +992,8 @@ const calculateNextStates = (
         }
     }
     
+    nextDrivers = nextDrivers.map(driver => sanitizeLapTiming(driver, baseLapReference));
+
     nextDrivers.sort(sortDrivers);
     const leaderTime = nextDrivers.find(d => d.raceStatus !== 'Crashed' && d.raceStatus !== 'DNF')?.totalRaceTime || 0;
     nextDrivers.forEach((driver, i) => {
@@ -1057,6 +1073,12 @@ const App: React.FC = () => {
   const [showGarageScreen, setShowGarageScreen] = useState<boolean>(false);
   const [showHqScreen, setShowHqScreen] = useState<boolean>(false);
   const [showHowToPlay, setShowHowToPlay] = useState<boolean>(false);
+  const [showSaveModal, setShowSaveModal] = useState<boolean>(false);
+  const [showLoadModal, setShowLoadModal] = useState<boolean>(false);
+  const [saveCodeValue, setSaveCodeValue] = useState<string>('');
+  const [saveStatusMessage, setSaveStatusMessage] = useState<string | null>(null);
+  const [loadCodeValue, setLoadCodeValue] = useState<string>('');
+  const [loadStatusMessage, setLoadStatusMessage] = useState<string | null>(null);
   const [hqEvent, setHqEvent] = useState<HeadquartersEvent | null>(null);
   const [hqEventRaceKey, setHqEventRaceKey] = useState<string | null>(null);
   const [pendingHqImpact, setPendingHqImpact] = useState<HeadquartersEventResolution | null>(null);
@@ -1082,6 +1104,184 @@ const App: React.FC = () => {
   }), []);
 
   const raceWeekendKey = useMemo(() => `${season}-${currentRaceIndex}`, [season, currentRaceIndex]);
+
+  const buildSaveSnapshot = useCallback((): GameSaveState => ({
+    version: 1,
+    gamePhase,
+    offSeasonPhase,
+    season,
+    currentRaceIndex,
+    playerTeam,
+    seasonLength,
+    seasonTracks,
+    raceState,
+    drivers,
+    roster,
+    personnel,
+    carRatings,
+    rookiePool,
+    affiliateCandidates,
+    practiceResults,
+    qualifyingResults,
+    qualifyingStage,
+    q2Drivers,
+    q3Drivers,
+    log,
+    fastestLap,
+    simSpeed,
+    commentaryHighlight,
+    raceLapEvents,
+    aiSummary,
+    isGeneratingSummary,
+    aiSeasonReview,
+    isGeneratingSeasonReview,
+    upcomingRaceQuote,
+    teamFinances,
+    teamDebriefs,
+    driverDebriefs,
+    playerShortlist,
+    driverProgressionLog,
+    resourceAllocationLog,
+    mvi,
+    staffingLog,
+    affiliateLog,
+    driverMarketLog,
+    regulationChangeLog,
+    devResults,
+    selectedTeam,
+    showHistoryScreen,
+    showGarageScreen,
+    showHqScreen,
+    showHowToPlay,
+    hqEvent,
+    hqEventRaceKey,
+    pendingHqImpact,
+    activeHqModifiers,
+    weekendModifiers,
+    standings,
+    constructorStandings,
+    raceHistory,
+    seasonHistory,
+  }), [
+    gamePhase,
+    offSeasonPhase,
+    season,
+    currentRaceIndex,
+    playerTeam,
+    seasonLength,
+    seasonTracks,
+    raceState,
+    drivers,
+    roster,
+    personnel,
+    carRatings,
+    rookiePool,
+    affiliateCandidates,
+    practiceResults,
+    qualifyingResults,
+    qualifyingStage,
+    q2Drivers,
+    q3Drivers,
+    log,
+    fastestLap,
+    simSpeed,
+    commentaryHighlight,
+    raceLapEvents,
+    aiSummary,
+    isGeneratingSummary,
+    aiSeasonReview,
+    isGeneratingSeasonReview,
+    upcomingRaceQuote,
+    teamFinances,
+    teamDebriefs,
+    driverDebriefs,
+    playerShortlist,
+    driverProgressionLog,
+    resourceAllocationLog,
+    mvi,
+    staffingLog,
+    affiliateLog,
+    driverMarketLog,
+    regulationChangeLog,
+    devResults,
+    selectedTeam,
+    showHistoryScreen,
+    showGarageScreen,
+    showHqScreen,
+    showHowToPlay,
+    hqEvent,
+    hqEventRaceKey,
+    pendingHqImpact,
+    activeHqModifiers,
+    weekendModifiers,
+    standings,
+    constructorStandings,
+    raceHistory,
+    seasonHistory,
+  ]);
+
+  const saveSystemSetters = useMemo<SaveStateSetters>(() => ({
+    setGamePhase,
+    setOffSeasonPhase,
+    setSeason,
+    setCurrentRaceIndex,
+    setPlayerTeam,
+    setSeasonLength,
+    setSeasonTracks,
+    setRaceState,
+    setDrivers,
+    setRoster,
+    setPersonnel,
+    setCarRatings,
+    setRookiePool,
+    setAffiliateCandidates,
+    setPracticeResults,
+    setQualifyingResults,
+    setQualifyingStage,
+    setQ2Drivers,
+    setQ3Drivers,
+    setLog,
+    setFastestLap,
+    setSimSpeed,
+    setCommentaryHighlight,
+    setRaceLapEvents,
+    setAiSummary,
+    setIsGeneratingSummary,
+    setAiSeasonReview,
+    setIsGeneratingSeasonReview,
+    setUpcomingRaceQuote,
+    setTeamFinances,
+    setTeamDebriefs,
+    setDriverDebriefs,
+    setPlayerShortlist,
+    setDriverProgressionLog,
+    setResourceAllocationLog,
+    setMvi,
+    setStaffingLog,
+    setAffiliateLog,
+    setDriverMarketLog,
+    setRegulationChangeLog,
+    setDevResults,
+    setSelectedTeam,
+    setShowHistoryScreen,
+    setShowGarageScreen,
+    setShowHqScreen,
+    setShowHowToPlay,
+    setHqEvent,
+    setHqEventRaceKey,
+    setPendingHqImpact,
+    setActiveHqModifiers,
+    setWeekendModifiers,
+    hydrateStandings,
+    hydrateConstructorStandings,
+    hydrateRaceHistory,
+    hydrateSeasonHistory,
+  }), [
+    hydrateStandings,
+    hydrateConstructorStandings,
+    hydrateRaceHistory,
+    hydrateSeasonHistory,
+  ]);
 
   const clearHeadquartersState = useCallback(() => {
     setActiveHqModifiers(null);
@@ -1189,15 +1389,47 @@ const App: React.FC = () => {
 
   const activeRoster = useMemo(() => roster.filter(d => d.status === 'Active').map(d => applyWeekendModifiersToDriver(d)), [roster, applyWeekendModifiersToDriver]);
 
-  const { standings, awardPoints, resetStandings } = useStandings(activeRoster);
-  const { standings: constructorStandings, awardConstructorPoints, resetConstructorStandings } = useConstructorStandings(activeRoster);
-  const { history: seasonHistory, archiveSeason, clearHistory } = useSeasonHistory();
-  const { history: raceHistory, recordWinner, clearRaceHistory } = useRaceHistory();
+  const { standings, awardPoints, resetStandings, hydrateStandings } = useStandings(activeRoster);
+  const { standings: constructorStandings, awardConstructorPoints, resetConstructorStandings, hydrateConstructorStandings } = useConstructorStandings(activeRoster);
+  const { history: seasonHistory, archiveSeason, clearHistory, hydrateSeasonHistory } = useSeasonHistory();
+  const { history: raceHistory, recordWinner, clearRaceHistory, hydrateRaceHistory } = useRaceHistory();
   const raceIntervalRef = useRef<number | null>(null);
   const highlightTimeoutRef = useRef<number | null>(null);
 
   const handleSelectTeam = (teamName: string) => setSelectedTeam(teamName);
   const handleCloseModal = () => setSelectedTeam(null);
+
+  const handleGenerateSave = useCallback(() => {
+    const snapshot = getCurrentGameState(buildSaveSnapshot());
+    const code = generateSaveCode(snapshot);
+    setSaveCodeValue(code);
+    setSaveStatusMessage('Copy this code and keep it somewhere safe.');
+    setShowSaveModal(true);
+  }, [buildSaveSnapshot]);
+
+  const handleCopySaveCode = useCallback(async () => {
+    if (!saveCodeValue) return;
+    try {
+      await navigator.clipboard.writeText(saveCodeValue);
+      setSaveStatusMessage('Save code copied to clipboard.');
+    } catch (error) {
+      console.error('Clipboard copy failed', error);
+      setSaveStatusMessage('Copy failed. Please copy the code manually.');
+    }
+  }, [saveCodeValue]);
+
+  const handleLoadFromCode = useCallback(() => {
+    const result = loadFromSaveCode(loadCodeValue, saveSystemSetters);
+    setLoadStatusMessage(result.message);
+    if (result.success) {
+      if (raceIntervalRef.current) {
+        clearInterval(raceIntervalRef.current);
+        raceIntervalRef.current = null;
+      }
+      setShowLoadModal(false);
+      setLoadCodeValue('');
+    }
+  }, [loadCodeValue, saveSystemSetters]);
   
   const selectedTeamData = useMemo(() => {
     if (!selectedTeam) return null;
@@ -2440,9 +2672,80 @@ const App: React.FC = () => {
             >
               How to Play
             </button>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+              <button
+                onClick={handleGenerateSave}
+                className="py-2 px-4 bg-blue-700 hover:bg-blue-600 text-white font-semibold rounded-lg transition duration-300"
+              >
+                Save Game (Generate Code)
+              </button>
+              <button
+                onClick={() => { setShowLoadModal(true); setLoadStatusMessage(null); }}
+                className="py-2 px-4 bg-green-700 hover:bg-green-600 text-white font-semibold rounded-lg transition duration-300"
+              >
+                Load Game (Paste Code)
+              </button>
+            </div>
         </header>
       )}
       {renderContent()}
+      {showSaveModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 rounded-lg p-6 w-full max-w-2xl shadow-xl relative">
+            <h2 className="text-2xl font-bold text-white mb-2">Manual Save Code</h2>
+            <p className="text-gray-300 text-sm mb-3">Copy this code and keep it somewhere safe. You can paste it back later to continue your game.</p>
+            <textarea
+              className="w-full h-40 bg-gray-900 text-gray-100 p-3 rounded border border-gray-700 focus:outline-none focus:ring-2 focus:ring-red-500"
+              value={saveCodeValue}
+              readOnly
+            />
+            {saveStatusMessage && <p className="text-sm text-teal-300 mt-2">{saveStatusMessage}</p>}
+            <div className="flex justify-end gap-3 mt-4">
+              <button
+                onClick={() => setShowSaveModal(false)}
+                className="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-white rounded"
+              >
+                Close
+              </button>
+              <button
+                onClick={handleCopySaveCode}
+                className="py-2 px-4 bg-blue-700 hover:bg-blue-600 text-white rounded"
+              >
+                Copy to Clipboard
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showLoadModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 rounded-lg p-6 w-full max-w-2xl shadow-xl relative">
+            <h2 className="text-2xl font-bold text-white mb-2">Load Game from Code</h2>
+            <p className="text-gray-300 text-sm mb-3">Paste a previously saved code to restore your game state.</p>
+            <textarea
+              className="w-full h-40 bg-gray-900 text-gray-100 p-3 rounded border border-gray-700 focus:outline-none focus:ring-2 focus:ring-red-500"
+              value={loadCodeValue}
+              onChange={(e) => setLoadCodeValue(e.target.value)}
+              placeholder="Paste your save code here"
+            />
+            {loadStatusMessage && <p className="text-sm mt-2 text-amber-300">{loadStatusMessage}</p>}
+            <div className="flex justify-end gap-3 mt-4">
+              <button
+                onClick={() => { setShowLoadModal(false); setLoadStatusMessage(null); }}
+                className="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-white rounded"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleLoadFromCode}
+                className="py-2 px-4 bg-green-700 hover:bg-green-600 text-white rounded"
+              >
+                Load from Code
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <TeamDetailModal
         isOpen={!!selectedTeam}
         onClose={handleCloseModal}
