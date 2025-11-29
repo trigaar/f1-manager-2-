@@ -1,7 +1,7 @@
 
 
 import React, { useState } from 'react';
-import { InitialDriver, TeamPersonnel, AffiliateDriver, DriverTraitRarity } from '../types';
+import { InitialDriver, TeamPersonnel, AffiliateDriver, DriverTraitRarity, HeadquartersEvent, HeadquartersEventResolution, WeekendModifier } from '../types';
 
 interface HeadquartersScreenProps {
     isOpen: boolean;
@@ -10,6 +10,10 @@ interface HeadquartersScreenProps {
     drivers: InitialDriver[];
     affiliate: AffiliateDriver | null;
     onContractOffer: (driverId: number, offerType: 'Lower' | 'Same' | 'Higher') => boolean;
+    event: HeadquartersEvent | null;
+    pendingImpact: HeadquartersEventResolution | null;
+    activeImpact: WeekendModifier | null;
+    onResolveEvent: (eventId: string, choiceId: string) => void;
 }
 
 const StatBar: React.FC<{ label: string; value: number; maxValue?: number; colorClass?: string }> = ({ label, value, maxValue = 100, colorClass }) => {
@@ -50,7 +54,7 @@ const TraitPill: React.FC<{ trait: InitialDriver['driverSkills']['trait'] }> = (
 };
 
 
-const HeadquartersScreen: React.FC<HeadquartersScreenProps> = ({ isOpen, onClose, personnel, drivers, affiliate, onContractOffer }) => {
+const HeadquartersScreen: React.FC<HeadquartersScreenProps> = ({ isOpen, onClose, personnel, drivers, affiliate, onContractOffer, event, pendingImpact, activeImpact, onResolveEvent }) => {
     const [negotiationDriverId, setNegotiationDriverId] = useState<number | null>(null);
 
     if (!isOpen) return null;
@@ -113,6 +117,49 @@ const HeadquartersScreen: React.FC<HeadquartersScreenProps> = ({ isOpen, onClose
                 </div>
 
                 <div className="p-6">
+                    {(event || pendingImpact || activeImpact) && (
+                        <div className="space-y-3 mb-6">
+                            {event && (
+                                <div className="bg-indigo-900/50 border border-indigo-600 rounded-lg p-4 shadow-lg">
+                                    <p className="text-xs uppercase font-bold text-indigo-200">Headquarters Event</p>
+                                    <h3 className="text-xl font-bold text-white mt-1">{event.title}</h3>
+                                    <p className="text-sm text-gray-200 mb-3">{event.description}</p>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        {event.choices.map(choice => (
+                                            <div key={choice.id} className="bg-gray-900/60 rounded-md p-3 border border-gray-700">
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <h4 className="font-semibold text-white text-sm">{choice.label}</h4>
+                                                    {choice.risk && (
+                                                        <span className="text-xs text-amber-300 font-semibold">{Math.round(choice.risk.probability * 100)}% risk</span>
+                                                    )}
+                                                </div>
+                                                <p className="text-sm text-gray-300 mb-2">{choice.summary}</p>
+                                                {choice.risk?.summary && <p className="text-xs text-amber-200">⚠ {choice.risk.summary}</p>}
+                                                <button
+                                                    onClick={() => onResolveEvent(event.id, choice.id)}
+                                                    className="mt-2 w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded"
+                                                >
+                                                    Apply Choice
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            {pendingImpact && (
+                                <div className="bg-blue-900/40 border border-blue-700 rounded-lg p-3 text-sm text-blue-100">
+                                    <p className="font-semibold">Queued for next race: {pendingImpact.title}</p>
+                                    <p className="text-xs text-blue-200">{pendingImpact.summary}</p>
+                                </div>
+                            )}
+                            {activeImpact && (
+                                <div className="bg-emerald-900/40 border border-emerald-700 rounded-lg p-3 text-sm text-emerald-100">
+                                    <p className="font-semibold">Active this weekend: {activeImpact.title}</p>
+                                    <p className="text-xs text-emerald-200">{activeImpact.summary}</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         {/* Left Column: Team & Facilities */}
                         <div className="lg:col-span-1 space-y-4">

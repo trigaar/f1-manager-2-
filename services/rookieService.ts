@@ -47,6 +47,19 @@ const generateRandomStat = (min: number, max: number): number => {
     return Math.floor(Math.random() * (max - min + 1)) + min;
 };
 
+const generateSpecialties = (pace: number, consistency: number): string[] => {
+    const specialties: string[] = [];
+
+    if (pace - consistency > 4) specialties.push('Qualifying Edge');
+    if (consistency - pace > 3) specialties.push('Metronomic Laps');
+    if (pace > 82) specialties.push('Late Braker');
+    if (consistency > 80 && pace > 78) specialties.push('Clutch Finisher');
+
+    const unique = Array.from(new Set(specialties));
+    if (unique.length === 0) unique.push('Track Learner');
+    return unique.slice(0, 2);
+};
+
 export const generateNewRookies = (count: number, existingRookies: RookieDriver[], allDrivers: InitialDriver[]): RookieDriver[] => {
     const newRookies: RookieDriver[] = [];
     const existingNames = new Set([...existingRookies.map(r => r.name), ...allDrivers.map(d => d.name)]);
@@ -60,13 +73,17 @@ export const generateNewRookies = (count: number, existingRookies: RookieDriver[
         const potential = POTENTIAL_DISTRIBUTION[Math.floor(Math.random() * POTENTIAL_DISTRIBUTION.length)];
         const { paceRange, consRange } = getStatsForPotential(potential);
 
+        const rawPace = generateRandomStat(paceRange[0], paceRange[1]);
+        const consistency = generateRandomStat(consRange[0], consRange[1]);
+
         const rookie: RookieDriver = {
             name,
-            rawPace: generateRandomStat(paceRange[0], paceRange[1]),
-            consistency: generateRandomStat(consRange[0], consRange[1]),
+            rawPace,
+            consistency,
             potential,
             affiliation: AFFILIATIONS[Math.floor(Math.random() * AFFILIATIONS.length)],
             sponsorship: SPONSORSHIPS[Math.floor(Math.random() * SPONSORSHIPS.length)],
+            specialties: generateSpecialties(rawPace, consistency),
         };
         newRookies.push(rookie);
     }
