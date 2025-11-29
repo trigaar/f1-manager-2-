@@ -999,6 +999,14 @@ const App: React.FC = () => {
 
   const raceWeekendKey = useMemo(() => `${season}-${currentRaceIndex}`, [season, currentRaceIndex]);
 
+  const clearHeadquartersState = useCallback(() => {
+    setActiveHqModifiers(null);
+    setPendingHqImpact(null);
+    setHqEvent(null);
+    setHqEventRaceKey(null);
+    setWeekendModifiers([]);
+  }, []);
+
   const weekendModifierMap = useMemo(() => {
     const byTeam = new Map<string, WeekendModifier[]>();
 
@@ -1214,11 +1222,7 @@ const App: React.FC = () => {
   const handleSetPlayerTeam = (teamName: string) => {
     // Clear any team-specific weekend or HQ state before switching control so
     // the new club does not inherit pending effects from the previous team.
-    setActiveHqModifiers(null);
-    setPendingHqImpact(null);
-    setHqEvent(null);
-    setHqEventRaceKey(null);
-    setWeekendModifiers([]);
+    clearHeadquartersState();
 
     setPlayerTeam(teamName);
     addLog(`You have taken control of ${teamName}. Good luck!`);
@@ -1823,10 +1827,7 @@ const App: React.FC = () => {
     }
 
     // Clear any leftover weekend or HQ effects so they don't leak into the fresh season.
-    setActiveHqModifiers(null);
-    setPendingHqImpact(null);
-    setHqEvent(null);
-    setWeekendModifiers([]);
+    clearHeadquartersState();
 
     const updatedRosterWithHistory = updateRosterForNewSeason(roster, driverDebriefs, carRatings, season);
 
@@ -1881,6 +1882,7 @@ const App: React.FC = () => {
   }, [
     addLog,
     carRatings,
+    clearHeadquartersState,
     driverDebriefs,
     driverMarketLog,
     resetConstructorStandings,
@@ -1898,11 +1900,7 @@ const App: React.FC = () => {
     setPersonnel(INITIAL_PERSONNEL);
     setCarRatings(CARS);
     setRookiePool(ROOKIE_POOL);
-    setActiveHqModifiers(null);
-    setPendingHqImpact(null);
-    setHqEvent(null);
-    setHqEventRaceKey(null);
-    setWeekendModifiers([]);
+    clearHeadquartersState();
     clearHistory();
     clearRaceHistory();
     setSeason(2025);
@@ -1911,7 +1909,13 @@ const App: React.FC = () => {
     setSeasonTracks(FULL_SEASON_TRACKS);
     setPlayerTeam(null);
     addLog('All championship, roster, personnel, and season history has been reset.');
-  }, [resetStandings, resetConstructorStandings, clearHistory, addLog]);
+  }, [
+    resetStandings,
+    resetConstructorStandings,
+    clearHistory,
+    addLog,
+    clearHeadquartersState,
+  ]);
 
   const handleCommentaryUpdate = useCallback((events: LapEvent[]) => {
     if (highlightTimeoutRef.current) {
