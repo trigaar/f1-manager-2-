@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { InitialDriver, Car, TeamPersonnel, Driver, DriverSkills, DriverTraitRarity } from '../types';
 import { getTeamColors } from '../constants';
+import { describeCarLink } from '../services/carLinkService';
 
 const attributeColors: Record<string, string> = {
     overall: '#38bdf8',
@@ -17,14 +18,14 @@ const attributeColors: Record<string, string> = {
     reputation: '#38bdf8',
 };
 
-const StatBar: React.FC<{ label: string; value: number; color: string }> = ({ label, value, color }) => (
+const StatBar: React.FC<{ label: string; value: number; color: string }> = ({ label, value }) => (
   <div className="mb-2">
     <div className="flex justify-between mb-1">
       <span className="text-sm font-medium text-gray-300">{label}</span>
       <span className="text-sm font-bold text-white">{value.toFixed(0)}</span>
     </div>
     <div className="w-full bg-gray-600 rounded-full h-2">
-      <div className="h-2 rounded-full" style={{ width: `${value}%`, backgroundColor: color }}></div>
+      <div className="h-2 rounded-full" style={{ width: `${value}%`, backgroundColor: '#ffffff' }}></div>
     </div>
   </div>
 );
@@ -238,6 +239,39 @@ const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ isOpen, onClose, team
                             ) : (
                                 <RadarChart attributes={numericSkillAttributes} values={skillValues} />
                             )}
+                             <div className="mt-3 bg-gray-800/70 border border-gray-700 rounded-md p-3">
+                                <p className="text-xs text-gray-400 uppercase mb-1">Car Link</p>
+                                <div className="flex justify-between gap-3 items-start">
+                                    <div>
+                                        <p className="text-white font-semibold leading-tight">{describeCarLink(driver.carLink)}</p>
+                                        {driver.carLink.notes && (
+                                            <p className="text-xs text-gray-400 mt-1">{driver.carLink.notes}</p>
+                                        )}
+                                    </div>
+                                    <div className="text-right text-sm">
+                                        <p className="text-[11px] uppercase text-gray-400">Compatibility</p>
+                                        <p className="text-lg font-bold text-white">{driver.carLink.compatibility}%</p>
+                                        <p className="text-[11px] uppercase text-gray-400 mt-2">Adaptation</p>
+                                        <p className="text-lg font-bold text-white">{driver.carLink.adaptation}%</p>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 mt-3">
+                                    <StatBar label="Compatibility" value={driver.carLink.compatibility} color="#e2e8f0" />
+                                    <StatBar label="Adaptation" value={driver.carLink.adaptation} color="#cbd5e1" />
+                                </div>
+                             </div>
+                             {driver.driverSkills.specialties && driver.driverSkills.specialties.length > 0 && (
+                                <div className="mt-3">
+                                    <p className="text-xs text-gray-400 uppercase mb-1">Specialties</p>
+                                    <div className="flex flex-wrap gap-2">
+                                        {driver.driverSkills.specialties.slice(0, 3).map((specialty) => (
+                                            <span key={specialty} className="px-2 py-1 text-xs rounded-full border border-white/25 text-white bg-white/10">
+                                                {specialty}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                             )}
                              <TraitDisplay trait={driver.driverSkills.trait} />
                             <h4 className="text-sm font-semibold mt-4 mb-2 text-gray-400 uppercase tracking-wider">Career History</h4>
                             <div className="text-xs text-gray-300 space-y-1 max-h-24 overflow-y-auto bg-gray-700/50 p-2 rounded-md">

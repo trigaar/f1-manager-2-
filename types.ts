@@ -42,7 +42,75 @@ export interface DriverSkills {
   loyalty: number; // 1-100
   potential: number; // 1-100
   reputation: number; // 1-100
+  specialties?: string[];
   trait?: DriverTrait;
+}
+
+export interface CarLink {
+  compatibility: number; // 0-100, higher means car concept suits the driver
+  adaptation: number; // 0-100, higher means the driver reaches peak pace sooner
+  notes?: string;
+}
+
+export interface WeekendModifier {
+  id: string;
+  title: string;
+  summary: string;
+  teamName: string;
+  raceKey?: string;
+  lapTimeModifier?: number; // Positive numbers reduce lap time (seconds), negative increases
+  qualifyingSkillDelta?: number;
+  paceDelta?: number;
+  reliabilityDelta?: number;
+  tyreLifeMultiplier?: number;
+  tyreWearDelta?: number;
+  tyreDegMultiplier?: number;
+  dnfRiskDelta?: number;
+  pitStopTimeDelta?: number;
+  pitMistakeChanceDelta?: number;
+  moraleDelta?: number;
+  reputationDelta?: number;
+  budgetDelta?: number;
+  engineWearDelta?: number;
+  confidenceDelta?: number;
+}
+
+export interface HeadquartersEventEffect {
+  lapTimeModifier?: number;
+  qualifyingSkillDelta?: number;
+  paceDelta?: number;
+  reliabilityDelta?: number;
+  tyreLifeMultiplier?: number;
+  tyreWearDelta?: number;
+  tyreDegMultiplier?: number;
+  dnfRiskDelta?: number;
+  pitStopTimeDelta?: number;
+  pitMistakeChanceDelta?: number;
+  moraleDelta?: number;
+  reputationDelta?: number;
+  budgetDelta?: number;
+  engineWearDelta?: number;
+  confidenceDelta?: number;
+}
+
+export interface HeadquartersEventChoice {
+  id: string;
+  label: string;
+  summary: string;
+  effect: HeadquartersEventEffect;
+  risk?: { probability: number; effect: HeadquartersEventEffect; summary?: string };
+}
+
+export interface HeadquartersEvent {
+  id: string;
+  title: string;
+  description: string;
+  choices: HeadquartersEventChoice[];
+}
+
+export interface HeadquartersEventResolution extends WeekendModifier {
+  choiceId: string;
+  riskTriggered?: boolean;
 }
 
 export interface Car {
@@ -86,6 +154,7 @@ export interface Driver {
   teamColor: string;
   teamHexColor: string;
   driverSkills: DriverSkills;
+  carLink: CarLink;
   car: Car;
   rookie: boolean;
   age: number;
@@ -123,6 +192,7 @@ export interface Driver {
   gripAdvantage: { forLaps: number; bonus: number; } | null;
   careerHistory: { [season: number]: string };
   form: number;
+  hqModifiers?: WeekendModifier;
 }
 
 export type LapEventType = 
@@ -139,8 +209,8 @@ export interface LapEvent {
     data?: any;
 }
 
-export type InitialDriver = Omit<Driver, 
-  'position' | 'currentTyres' | 'fuelLoad' | 'raceStatus' | 'lapTime' | 
+export type InitialDriver = Omit<Driver,
+  'position' | 'currentTyres' | 'fuelLoad' | 'raceStatus' | 'lapTime' |
   'totalRaceTime' | 'gapToLeader' | 'strategy' | 'pitStops' | 'battle' | 
   'teamColor' | 'teamHexColor' | 'pittedUnderSCThisPeriod' | 'isDamaged' |
   'compoundsUsed' | 'hasUsedWetTyre' | 'penalties' | 'trackLimitWarnings' | 'retirementLap' |
@@ -153,6 +223,7 @@ export type InitialDriver = Omit<Driver,
     happiness: number;
     morale: number;
     negotiationStatus?: 'Pending' | 'Signed' | 'Declined';
+    hqModifiers?: WeekendModifier;
 };
 
 export interface ShortlistDriver extends InitialDriver {
@@ -288,6 +359,7 @@ export interface RookieDriver {
     potential: RookiePotential;
     affiliation: string | 'None';
     sponsorship: SponsorshipLevel;
+    specialties?: string[];
 }
 
 export type DriverMarketEvent = {
