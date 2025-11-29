@@ -64,6 +64,29 @@ const HeadquartersScreen: React.FC<HeadquartersScreenProps> = ({ isOpen, onClose
         setNegotiationDriverId(null);
     };
 
+    const average = (vals: number[]) => vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+    const moraleAverage = average(drivers.map(d => d.morale));
+    const happinessAverage = average(drivers.map(d => d.happiness));
+
+    const buildModifierLines = (modifier?: WeekendModifier | HeadquartersEventResolution | null) => {
+        if (!modifier) return [] as string[];
+        const lines: string[] = [];
+        if (modifier.lapTimeModifier) lines.push(`${modifier.lapTimeModifier > 0 ? '-' : '+'}${Math.abs(modifier.lapTimeModifier).toFixed(2)}s lap pace`);
+        if (modifier.qualifyingSkillDelta) lines.push(`${modifier.qualifyingSkillDelta > 0 ? '+' : ''}${modifier.qualifyingSkillDelta} quali skill`);
+        if (modifier.paceDelta) lines.push(`${modifier.paceDelta > 0 ? '+' : ''}${modifier.paceDelta} race craft`);
+        if (modifier.tyreLifeMultiplier) lines.push(`${Math.round((modifier.tyreLifeMultiplier - 1) * 100)}% tyre life`);
+        if (modifier.tyreWearDelta) lines.push(`${modifier.tyreWearDelta > 0 ? '+' : ''}${modifier.tyreWearDelta}% tyre wear`);
+        if (modifier.reliabilityDelta) lines.push(`${modifier.reliabilityDelta > 0 ? '+' : ''}${modifier.reliabilityDelta}% reliability`);
+        if (modifier.dnfRiskDelta) lines.push(`${modifier.dnfRiskDelta > 0 ? '+' : ''}${modifier.dnfRiskDelta}% DNF risk`);
+        if (modifier.pitStopTimeDelta) lines.push(`${modifier.pitStopTimeDelta > 0 ? '+' : ''}${modifier.pitStopTimeDelta}s pit time`);
+        if (modifier.pitMistakeChanceDelta) lines.push(`${modifier.pitMistakeChanceDelta > 0 ? '+' : ''}${modifier.pitMistakeChanceDelta}% pit mistake chance`);
+        if (modifier.moraleDelta) lines.push(`${modifier.moraleDelta > 0 ? '+' : ''}${modifier.moraleDelta}% morale`);
+        if (modifier.reputationDelta) lines.push(`${modifier.reputationDelta > 0 ? '+' : ''}${modifier.reputationDelta} reputation`);
+        if (modifier.budgetDelta) lines.push(`${modifier.budgetDelta >= 0 ? '+' : ''}$${(modifier.budgetDelta / 1_000_000).toFixed(2)}M budget`);
+        if (modifier.confidenceDelta) lines.push(`${modifier.confidenceDelta > 0 ? '+' : ''}${modifier.confidenceDelta}% confidence`);
+        return lines;
+    };
+
     const renderContractStatus = (driver: InitialDriver) => {
         if (driver.contractExpiresIn > 1) {
             return <p className="text-xs text-gray-400">Contract expires in {driver.contractExpiresIn} seasons (Secure)</p>;

@@ -214,6 +214,61 @@ const calculateRaceTSM = (car: Car, track: Track): number => {
     return tsm;
 };
 
+const clampNumber = (value: number, fallback: number, min?: number, max?: number): number => {
+    if (!Number.isFinite(value)) return fallback;
+    if (min !== undefined && value < min) return min;
+    if (max !== undefined && value > max) return max;
+    return value;
+};
+
+const sanitizeTrackState = (track: Track): Track => {
+    return {
+        ...track,
+        baseLapTime: clampNumber(track.baseLapTime, 90, 60, 140),
+        pitLaneTimeLoss: clampNumber(track.pitLaneTimeLoss, 20, 12, 40),
+        laps: Math.max(10, track.laps || 50),
+        tyreStress: clampNumber(track.tyreStress, 3, 1, 6),
+        brakeWear: clampNumber(track.brakeWear, 3, 1, 6),
+        powerSensitivity: clampNumber(track.powerSensitivity, 3, 1, 6),
+        safetyCarProbability: clampNumber(track.safetyCarProbability, 0.5, 0, 1),
+        virtualSafetyCarProbability: clampNumber(track.virtualSafetyCarProbability, 0.5, 0, 1),
+    };
+};
+
+const sanitizeDriverState = (driver: Driver, baseLapRef: number, track: Track): Driver => {
+    const fallbackTyre = driver.currentTyres?.compound || TyreCompound.Medium;
+    const tyre = driver.currentTyres || {
+        compound: fallbackTyre,
+        wear: 0,
+        age: 0,
+        temperature: TIRE_BLANKET_TEMP,
+        condition: 'Cold' as const,
+    };
+
+    const safeTemperature = clampNumber(tyre.temperature, TIRE_BLANKET_TEMP, track.tyreStress > 4 ? 60 : 40, 150);
+    const safeWear = clampNumber(tyre.wear, 0, 0, 100);
+
+    return {
+        ...driver,
+        position: Math.max(1, driver.position || 1),
+        startingPosition: Math.max(1, driver.startingPosition || 1),
+        totalRaceTime: clampNumber(driver.totalRaceTime ?? 0, 0, 0, Number.MAX_SAFE_INTEGER),
+        gapToLeader: clampNumber(driver.gapToLeader ?? 0, 0, 0, Number.MAX_SAFE_INTEGER),
+        lapTime: clampNumber(driver.lapTime ?? baseLapRef, baseLapRef, 40, Number.MAX_SAFE_INTEGER),
+        fuelLoad: clampNumber(driver.fuelLoad ?? 105, 105, 0, 120),
+        currentTyres: {
+            ...tyre,
+            wear: safeWear,
+            age: clampNumber(tyre.age ?? 0, 0, 0, 200),
+            temperature: safeTemperature,
+            condition: tyre.condition || 'Cold',
+        },
+        penalties: driver.penalties || [],
+        compoundsUsed: driver.compoundsUsed?.length ? driver.compoundsUsed : [fallbackTyre],
+        raceStatus: driver.raceStatus || 'Racing',
+    };
+};
+
 
 const calculateNextStates = (
     prevDrivers: Driver[],
@@ -229,6 +284,29 @@ const calculateNextStates = (
     let nextRaceState = { ...prevRaceState };
     let lapEvents: LapEvent[] = [];
     let flagTriggers: RaceFlag[] = [];
+
+    // Guardrails for any corrupt state that might have slipped through between sessions
+    const safeTrack = sanitizeTrackState(nextRaceState.track);
+    nextRaceState = {
+        ...nextRaceState,
+        track: safeTrack,
+        airTemp: clampNumber(nextRaceState.airTemp, 25, -10, 60),
+        trackTemp: clampNumber(nextRaceState.trackTemp, 40, -10, 80),
+        trackCondition: {
+            waterLevel: clampNumber(nextRaceState.trackCondition?.waterLevel ?? 0, 0, 0, 100),
+            gripLevel: clampNumber(nextRaceState.trackCondition?.gripLevel ?? 100, 100, 0, 100),
+        },
+        masterWeatherForecast: nextRaceState.masterWeatherForecast?.length ? nextRaceState.masterWeatherForecast : Array.from({
+            length: safeTrack.laps
+        }, () => nextRaceState.weather || 'Sunny'),
+        teamWeatherForecasts: nextRaceState.teamWeatherForecasts || {},
+    };
+
+    const baseLapReference = safeTrack.baseLapTime;
+    nextDrivers = nextDrivers.map(driver => sanitizeDriverState(driver, baseLapReference, safeTrack));
+
+    // Cached maps keep lookups predictable during the lap loop
+    const personnelMap = new Map(personnel.map(p => [p.teamName, p]));
 
     if (nextRaceState.isRestarting) {
         addLog("The grid is reformed for a standing restart. All time gaps have been nullified.");
@@ -343,7 +421,7 @@ const calculateNextStates = (
         const teamForecast = nextRaceState.teamWeatherForecasts[driver.car.teamName] || nextRaceState.masterWeatherForecast;
         const currentTyre = driver.currentTyres.compound;
         const wasOnSlicks = currentTyre === TyreCompound.Soft || currentTyre === TyreCompound.Medium || currentTyre === TyreCompound.Hard;
-        const teamPersonnel = personnel.find(p => p.teamName === driver.car.teamName);
+        const teamPersonnel = personnelMap.get(driver.car.teamName);
         const strategyRating = teamPersonnel ? (((teamPersonnel.teamPrincipal?.leadership || 15) + (teamPersonnel.headOfTechnical?.innovation || 15)) / 40) * 100 : 75;
         const lapsToLookAhead = strategyRating > 90 ? 2 : 1;
         const predictedWeatherInWindow = teamForecast.slice(nextRaceState.lap, nextRaceState.lap + lapsToLookAhead);
@@ -648,8 +726,9 @@ const calculateNextStates = (
                 lapEvents.push({ type: 'FASTEST_LAP', driverName: driver.name, data: { time: driver.lapTime }});
             }
         }
-        
-        driver.totalRaceTime += driver.lapTime;
+
+        const lapTimeApplied = clampNumber(driver.lapTime, baseLapReference, 40, 400);
+        driver.totalRaceTime = clampNumber(driver.totalRaceTime + lapTimeApplied, lapTimeApplied, 0, Number.MAX_SAFE_INTEGER);
         let fuelConsumption = 1.8;
         if (driver.paceMode === 'Pushing') fuelConsumption *= 1.1;
         if (driver.paceMode === 'Conserving') fuelConsumption *= 0.85;

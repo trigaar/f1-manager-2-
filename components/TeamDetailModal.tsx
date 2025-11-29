@@ -21,8 +21,8 @@ const attributeColors: Record<string, string> = {
 const StatBar: React.FC<{ label: string; value: number; color: string }> = ({ label, value }) => (
   <div className="mb-2">
     <div className="flex justify-between mb-1">
-      <span className="text-sm font-medium text-gray-300">{label}</span>
-      <span className="text-sm font-bold text-white">{value.toFixed(0)}</span>
+      <span className="text-xs font-semibold text-gray-300 uppercase tracking-wide">{label}</span>
+      <span className="text-sm font-extrabold text-white">{value.toFixed(0)}</span>
     </div>
     <div className="w-full bg-gray-600 rounded-full h-2">
       <div className="h-2 rounded-full" style={{ width: `${value}%`, backgroundColor: '#ffffff' }}></div>
@@ -31,6 +31,9 @@ const StatBar: React.FC<{ label: string; value: number; color: string }> = ({ la
 );
 
 const formatAttributeName = (attr: string) => {
+    if (attributeLabels[attr as keyof DriverSkills]) {
+        return attributeLabels[attr as keyof DriverSkills];
+    }
     return attr.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
 }
 
@@ -142,7 +145,11 @@ const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ isOpen, onClose, team
     return 'text-red-400';
   }
   
-  const driverSkillsOrder: (keyof DriverSkills)[] = ['overall', 'qualifyingPace', 'raceCraft', 'tyreManagement', 'consistency', 'wetWeatherSkill', 'aggressionIndex', 'incidentProneness', 'loyalty', 'reputation'];
+  const radarAttributes: (keyof DriverSkills)[] = ['overall', 'qualifyingPace', 'raceCraft', 'tyreManagement', 'consistency', 'wetWeatherSkill', 'aggressionIndex', 'incidentProneness'];
+
+  const driverSkillsOrder: (keyof DriverSkills)[] = [...radarAttributes, 'loyalty', 'reputation'];
+
+  const numericSkillAttributes = radarAttributes;
 
   const numericSkillAttributes = driverSkillsOrder;
 
@@ -191,34 +198,36 @@ const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ isOpen, onClose, team
                     });
 
                     return (
-                        <div key={driver.id} className="bg-gray-900/50 p-4 rounded-lg">
-                            <p className="font-bold text-xl text-white">{driver.name} ({driver.age})</p>
-                            
-                            <div className="grid grid-cols-2 gap-4 my-3">
+                        <div key={driver.id} className="bg-gray-900/60 p-5 rounded-xl border border-gray-800 shadow-xl space-y-4">
+                            <div className="flex items-start justify-between gap-3">
                                 <div>
-                                    <p className="text-xs text-gray-400 uppercase">Salary</p>
+                                    <p className="font-bold text-xl text-white">{driver.name} <span className="text-sm text-gray-400 font-normal">({driver.age})</span></p>
+                                    <p className="text-xs uppercase text-gray-400 tracking-wide">{driver.shortName}</p>
+                                </div>
+                                <div className="text-right space-y-1">
+                                    <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-emerald-600/30 border border-emerald-500 text-emerald-100">Overall {driver.driverSkills.overall.toFixed(0)}</span>
+                                    {driver.rookie && <p className="text-[11px] text-blue-200 uppercase">Rookie Prospect</p>}
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <div className="bg-gray-800/60 rounded-lg p-3 border border-gray-700/60">
+                                    <p className="text-[11px] text-gray-400 uppercase">Salary</p>
                                     <p className="text-lg font-bold text-white">${(driver.salary / 1_000_000).toFixed(1)}M</p>
                                 </div>
-                                <div>
-                                    <p className="text-xs text-gray-400 uppercase">Season Rating</p>
+                                <div className="bg-gray-800/60 rounded-lg p-3 border border-gray-700/60">
+                                    <p className="text-[11px] text-gray-400 uppercase">Season Rating</p>
                                     <p className={`text-lg font-bold ${avgSeasonRating ? getRatingColor(avgSeasonRating) : 'text-white'}`}>
                                         {avgSeasonRating ? avgSeasonRating.toFixed(0) : '-'}
                                     </p>
                                 </div>
-                            </div>
-                            
-                            <div className="grid grid-cols-3 gap-4 my-3 border-b border-t border-gray-700 py-3">
-                                <div className="text-center">
-                                    <p className="text-xs text-gray-400 uppercase">Wins</p>
+                                <div className="bg-gray-800/60 rounded-lg p-3 border border-gray-700/60 text-center">
+                                    <p className="text-[11px] text-gray-400 uppercase">Wins</p>
                                     <p className="text-2xl font-bold text-white">{driver.careerWins || 0}</p>
                                 </div>
-                                <div className="text-center">
-                                    <p className="text-xs text-gray-400 uppercase">Podiums</p>
+                                <div className="bg-gray-800/60 rounded-lg p-3 border border-gray-700/60 text-center">
+                                    <p className="text-[11px] text-gray-400 uppercase">Podiums</p>
                                     <p className="text-2xl font-bold text-white">{driver.careerPodiums || 0}</p>
-                                </div>
-                                <div className="text-center">
-                                    <p className="text-xs text-gray-400 uppercase">Championships</p>
-                                    <p className="text-2xl font-bold text-yellow-400">{driver.championships || 0}</p>
                                 </div>
                             </div>
                             {chartMode === 'bar' ? (
@@ -280,7 +289,32 @@ const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ isOpen, onClose, team
                                         <span>{year}:</span>
                                         <span className="font-semibold">{team}</span>
                                     </div>
-                                ))}
+                                    {driver.driverSkills.specialties && driver.driverSkills.specialties.length > 0 && (
+                                        <div className="bg-gray-900/70 border border-gray-800 rounded-lg p-3">
+                                            <p className="text-xs text-gray-400 uppercase mb-1">Specialties</p>
+                                            <div className="flex flex-wrap gap-2">
+                                                {driver.driverSkills.specialties.slice(0, 3).map((specialty) => (
+                                                    <span key={specialty} className="px-2 py-1 text-xs rounded-full border border-white/25 text-white bg-white/10">
+                                                        {specialty}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                     )}
+                                     <TraitDisplay trait={driver.driverSkills.trait} />
+                                </div>
+                            </div>
+
+                            <div className="bg-gray-900/60 border border-gray-800 rounded-lg p-3">
+                                <h4 className="text-sm font-semibold mb-2 text-gray-300 uppercase tracking-wider">Career History</h4>
+                                <div className="text-xs text-gray-300 space-y-1 max-h-24 overflow-y-auto bg-gray-800/40 p-2 rounded-md">
+                                    {Object.entries(driver.careerHistory || {}).sort((a,b) => parseInt(b[0]) - parseInt(a[0])).map(([year, team]) => (
+                                        <div key={year} className="flex justify-between">
+                                            <span>{year}:</span>
+                                            <span className="font-semibold">{team}</span>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     )
