@@ -621,10 +621,6 @@ const calculateNextStates = (
 
             let baseLapTime = nextRaceState.track.baseLapTime + (newWaterLevel / 10);
 
-            if (!Number.isFinite(baseLapTime)) {
-                baseLapTime = Math.max(70, (nextRaceState.track.baseLapTime || 90));
-            }
-
             if (driver.hqModifiers?.lapTimeModifier) {
                 baseLapTime -= driver.hqModifiers.lapTimeModifier;
             }
@@ -724,8 +720,7 @@ const calculateNextStates = (
                 raceCraftPenalty *= 0.8;
             }
             baseLapTime += raceCraftPenalty + lapPerformanceModifier;
-            const safeLapTime = clampNumber(parseFloat(baseLapTime.toFixed(3)), baseLapReference, 40, 400);
-            driver.lapTime = safeLapTime;
+            driver.lapTime = parseFloat(baseLapTime.toFixed(3));
             if (driver.raceStatus === 'Racing' && nextRaceState.flag === RaceFlag.Green && (!fastestLap || driver.lapTime < fastestLap.time)) {
                 setFastestLap({ driverName: driver.name, time: driver.lapTime });
                 lapEvents.push({ type: 'FASTEST_LAP', driverName: driver.name, data: { time: driver.lapTime }});
