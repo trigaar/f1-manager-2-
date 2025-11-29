@@ -1813,6 +1813,12 @@ const App: React.FC = () => {
       highlightTimeoutRef.current = null;
     }
 
+    // Clear any leftover weekend or HQ effects so they don't leak into the fresh season.
+    setActiveHqModifiers(null);
+    setPendingHqImpact(null);
+    setHqEvent(null);
+    setWeekendModifiers([]);
+
     const updatedRosterWithHistory = updateRosterForNewSeason(roster, driverDebriefs, carRatings, season);
 
     const retiredThisSeasonCount = driverMarketLog.filter(e => e.type === 'RETIRED').length;
@@ -1883,6 +1889,10 @@ const App: React.FC = () => {
     setPersonnel(INITIAL_PERSONNEL);
     setCarRatings(CARS);
     setRookiePool(ROOKIE_POOL);
+    setActiveHqModifiers(null);
+    setPendingHqImpact(null);
+    setHqEvent(null);
+    setWeekendModifiers([]);
     clearHistory();
     clearRaceHistory();
     setSeason(2025);
