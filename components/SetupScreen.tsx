@@ -1,6 +1,6 @@
 
 import React, { useMemo } from 'react';
-import { Track, DriverStanding, ConstructorStanding, UpcomingRaceQuote, RaceHistory, InitialDriver } from '../types';
+import { Track, DriverStanding, ConstructorStanding, UpcomingRaceQuote, RaceHistory, InitialDriver, HeadquartersEventResolution, WeekendModifier } from '../types';
 import DriverStandings from './DriverStandings';
 import ConstructorStandings from './ConstructorStandings';
 
@@ -25,6 +25,9 @@ interface SetupScreenProps {
   playerTeam: string | null;
   onSetPlayerTeam: (teamName: string) => void;
   onShowHowToPlay: () => void;
+  hqEventAvailable: boolean;
+  hqImpact: HeadquartersEventResolution | null;
+  preRaceModifiers: WeekendModifier[];
 }
 
 const InfoPill: React.FC<{ label: string; value: string | number; color?: string }> = ({ label, value, color = 'bg-gray-600' }) => (
@@ -47,7 +50,31 @@ const DriverPreview: React.FC<{ quote: UpcomingRaceQuote | null }> = ({ quote })
     );
 };
 
-const SetupScreen: React.FC<SetupScreenProps> = ({ season, onStartPracticeWeekend, standings, constructorStandings, onResetStandings, seasonTracks, currentRaceIndex, onSelectTeam, onShowHistory, onShowGarage, onShowHq, onSkipToOffSeason, upcomingRaceQuote, raceHistory, roster, onSetSeasonLength, seasonLength, playerTeam, onSetPlayerTeam, onShowHowToPlay }) => {
+const SetupScreen: React.FC<SetupScreenProps> = ({
+  season,
+  onStartPracticeWeekend,
+  standings,
+  constructorStandings,
+  onResetStandings,
+  seasonTracks,
+  currentRaceIndex,
+  onSelectTeam,
+  onShowHistory,
+  onShowGarage,
+  onShowHq,
+  onSkipToOffSeason,
+  upcomingRaceQuote,
+  raceHistory,
+  roster,
+  onSetSeasonLength,
+  seasonLength,
+  playerTeam,
+  onSetPlayerTeam,
+  onShowHowToPlay,
+  hqEventAvailable,
+  hqImpact,
+  preRaceModifiers,
+}) => {
   const currentTrack = seasonTracks[currentRaceIndex];
   
   const driverMap = useMemo(() => new Map(roster.map(d => [d.id, d.name])), [roster]);
@@ -89,6 +116,11 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ season, onStartPracticeWeeken
                 className="w-full py-3 px-4 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-lg transition duration-300"
             >
                 Headquarters
+                {(hqEventAvailable || hqImpact) && (
+                    <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full bg-yellow-500 text-black text-xs font-bold">
+                        HQ Alert
+                    </span>
+                )}
             </button>
              <button
                 onClick={onShowGarage}
@@ -103,6 +135,25 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ season, onStartPracticeWeeken
                 View Season History
             </button>
         </div>
+
+        {hqImpact && (
+            <div className="w-full bg-indigo-900/40 border border-indigo-700 text-indigo-100 rounded-lg p-3 mb-4">
+                <p className="text-sm font-semibold">Headquarters impact queued</p>
+                <p className="text-xs text-indigo-200">{hqImpact.title} — {hqImpact.summary}</p>
+            </div>
+        )}
+
+        {preRaceModifiers.length > 0 && (
+            <div className="w-full bg-amber-900/40 border border-amber-700 text-amber-100 rounded-lg p-3 mb-4">
+                <p className="text-sm font-semibold">Wildcard pre-race event active</p>
+                {preRaceModifiers.map(mod => (
+                    <div key={mod.id} className="mt-2 text-xs">
+                        <p className="font-semibold text-amber-200">{mod.title}</p>
+                        <p className="text-amber-100/90">{mod.summary}</p>
+                    </div>
+                ))}
+            </div>
+        )}
 
         <div className="flex flex-col lg:flex-row gap-8">
             <div className="w-full lg:w-1/3 flex flex-col">
