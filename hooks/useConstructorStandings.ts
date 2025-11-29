@@ -80,5 +80,12 @@ export const useConstructorStandings = (roster: InitialDriver[]) => {
         setStandings(getDefaultConstructorStandings(currentRoster));
     };
 
-    return { standings, awardConstructorPoints, resetConstructorStandings };
+    const hydrateConstructorStandings = (loadedStandings: ConstructorStanding[]) => {
+        if (!Array.isArray(loadedStandings) || loadedStandings.length === 0) {
+            return;
+        }
+        setStandings(loadedStandings);
+    };
+
+    return { standings, awardConstructorPoints, resetConstructorStandings, hydrateConstructorStandings };
 };

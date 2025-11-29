@@ -47,5 +47,10 @@ export const useSeasonHistory = () => {
         setHistory([]);
     }
 
-    return { history, archiveSeason, clearHistory };
+    const hydrateSeasonHistory = (loadedHistory: SeasonHistoryEntry[]) => {
+        if (!Array.isArray(loadedHistory)) return;
+        setHistory(loadedHistory);
+    };
+
+    return { history, archiveSeason, clearHistory, hydrateSeasonHistory };
 };
