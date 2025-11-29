@@ -979,26 +979,79 @@ const App: React.FC = () => {
   const [activeHqModifiers, setActiveHqModifiers] = useState<HeadquartersEventResolution | null>(null);
   const [weekendModifiers, setWeekendModifiers] = useState<WeekendModifier[]>([]);
 
+  const mergeHqEffects = useCallback((base: HeadquartersEventEffect, extra: HeadquartersEventEffect): HeadquartersEventEffect => ({
+    lapTimeModifier: (base.lapTimeModifier || 0) + (extra.lapTimeModifier || 0),
+    qualifyingSkillDelta: (base.qualifyingSkillDelta || 0) + (extra.qualifyingSkillDelta || 0),
+    paceDelta: (base.paceDelta || 0) + (extra.paceDelta || 0),
+    reliabilityDelta: (base.reliabilityDelta || 0) + (extra.reliabilityDelta || 0),
+    tyreLifeMultiplier: (base.tyreLifeMultiplier || 1) * (extra.tyreLifeMultiplier || 1),
+    tyreWearDelta: (base.tyreWearDelta || 0) + (extra.tyreWearDelta || 0),
+    tyreDegMultiplier: (base.tyreDegMultiplier || 1) * (extra.tyreDegMultiplier || 1),
+    dnfRiskDelta: (base.dnfRiskDelta || 0) + (extra.dnfRiskDelta || 0),
+    pitStopTimeDelta: (base.pitStopTimeDelta || 0) + (extra.pitStopTimeDelta || 0),
+    pitMistakeChanceDelta: (base.pitMistakeChanceDelta || 0) + (extra.pitMistakeChanceDelta || 0),
+    moraleDelta: (base.moraleDelta || 0) + (extra.moraleDelta || 0),
+    reputationDelta: (base.reputationDelta || 0) + (extra.reputationDelta || 0),
+    budgetDelta: (base.budgetDelta || 0) + (extra.budgetDelta || 0),
+    engineWearDelta: (base.engineWearDelta || 0) + (extra.engineWearDelta || 0),
+    confidenceDelta: (base.confidenceDelta || 0) + (extra.confidenceDelta || 0),
+  }), []);
+
   const raceWeekendKey = useMemo(() => `${season}-${currentRaceIndex}`, [season, currentRaceIndex]);
 
-  const combineWeekendModifiers = useCallback((teamName: string, modifierOverride?: WeekendModifier[]) => {
-    const modifiers: WeekendModifier[] = [];
-    if (activeHqModifiers && activeHqModifiers.teamName === teamName) modifiers.push(activeHqModifiers);
-    const weekendSource = modifierOverride ?? weekendModifiers;
-    modifiers.push(...weekendSource.filter(mod => mod.teamName === teamName));
+  const weekendModifierMap = useMemo(() => {
+    const byTeam = new Map<string, WeekendModifier[]>();
 
-    if (!modifiers.length) return null;
+    if (activeHqModifiers) {
+      byTeam.set(activeHqModifiers.teamName, [activeHqModifiers]);
+    }
 
-    const aggregatedEffect = modifiers.reduce((acc, mod) => mergeHqEffects(acc, mod), {} as HeadquartersEventEffect);
+    weekendModifiers.forEach(mod => {
+      const existing = byTeam.get(mod.teamName) || [];
+      existing.push(mod);
+      byTeam.set(mod.teamName, existing);
+    });
 
-    return {
-      ...aggregatedEffect,
-      id: `weekend-${modifiers.map(m => m.id).join('-')}`,
-      title: modifiers.map(m => m.title).filter(Boolean).join(' & ') || modifiers[0].title,
-      summary: modifiers.map(m => m.summary).filter(Boolean).join(' | ') || modifiers[0].summary,
-      teamName,
-    } as WeekendModifier;
+    const combined = new Map<string, WeekendModifier>();
+
+    byTeam.forEach((mods, teamName) => {
+      const aggregatedEffect = mods.reduce(
+        (acc, mod) => mergeHqEffects(acc, mod),
+        {} as HeadquartersEventEffect,
+      );
+
+      combined.set(teamName, {
+        ...aggregatedEffect,
+        id: `weekend-${mods.map(m => m.id).join('-')}`,
+        title: mods.map(m => m.title).filter(Boolean).join(' & ') || mods[0].title,
+        summary: mods.map(m => m.summary).filter(Boolean).join(' | ') || mods[0].summary,
+        teamName,
+      } as WeekendModifier);
+    });
+
+    return combined;
   }, [activeHqModifiers, mergeHqEffects, weekendModifiers]);
+
+  const combineWeekendModifiers = useCallback((teamName: string, modifierOverride?: WeekendModifier[]) => {
+    if (modifierOverride) {
+      if (!modifierOverride.length) return null;
+
+      const aggregatedEffect = modifierOverride.reduce(
+        (acc, mod) => mergeHqEffects(acc, mod),
+        {} as HeadquartersEventEffect,
+      );
+
+      return {
+        ...aggregatedEffect,
+        id: `weekend-${modifierOverride.map(m => m.id).join('-')}`,
+        title: modifierOverride.map(m => m.title).filter(Boolean).join(' & ') || modifierOverride[0].title,
+        summary: modifierOverride.map(m => m.summary).filter(Boolean).join(' | ') || modifierOverride[0].summary,
+        teamName,
+      } as WeekendModifier;
+    }
+
+    return weekendModifierMap.get(teamName) || null;
+  }, [mergeHqEffects, weekendModifierMap]);
 
   const applyWeekendModifiersToDriver = useCallback((driver: InitialDriver, modifierOverride?: WeekendModifier[]): InitialDriver => {
     const modifier = combineWeekendModifiers(driver.car.teamName, modifierOverride);
@@ -1114,36 +1167,13 @@ const App: React.FC = () => {
     setLog(prev => [`${prefix} ${message}`, ...prev.slice(0, 49)]);
   }, [raceState.lap, raceState.totalLaps, gamePhase]);
 
-  const mergeHqEffects = useCallback((base: HeadquartersEventEffect, extra: HeadquartersEventEffect): HeadquartersEventEffect => ({
-    lapTimeModifier: (base.lapTimeModifier || 0) + (extra.lapTimeModifier || 0),
-    qualifyingSkillDelta: (base.qualifyingSkillDelta || 0) + (extra.qualifyingSkillDelta || 0),
-    paceDelta: (base.paceDelta || 0) + (extra.paceDelta || 0),
-    reliabilityDelta: (base.reliabilityDelta || 0) + (extra.reliabilityDelta || 0),
-    tyreLifeMultiplier: (base.tyreLifeMultiplier || 1) * (extra.tyreLifeMultiplier || 1),
-    tyreWearDelta: (base.tyreWearDelta || 0) + (extra.tyreWearDelta || 0),
-    tyreDegMultiplier: (base.tyreDegMultiplier || 1) * (extra.tyreDegMultiplier || 1),
-    dnfRiskDelta: (base.dnfRiskDelta || 0) + (extra.dnfRiskDelta || 0),
-    pitStopTimeDelta: (base.pitStopTimeDelta || 0) + (extra.pitStopTimeDelta || 0),
-    pitMistakeChanceDelta: (base.pitMistakeChanceDelta || 0) + (extra.pitMistakeChanceDelta || 0),
-    moraleDelta: (base.moraleDelta || 0) + (extra.moraleDelta || 0),
-    reputationDelta: (base.reputationDelta || 0) + (extra.reputationDelta || 0),
-    budgetDelta: (base.budgetDelta || 0) + (extra.budgetDelta || 0),
-    engineWearDelta: (base.engineWearDelta || 0) + (extra.engineWearDelta || 0),
-    confidenceDelta: (base.confidenceDelta || 0) + (extra.confidenceDelta || 0),
-  }), []);
-
   useEffect(() => {
-    if (!showHqScreen || !playerTeam) return;
-    if (hqEvent && hqEventRaceKey === raceWeekendKey) return;
-    if (hqEventRaceKey === raceWeekendKey && !hqEvent) return;
+    if (!playerTeam) return;
+    if (hqEventRaceKey === raceWeekendKey) return;
 
     setHqEventRaceKey(raceWeekendKey);
-    if (Math.random() < 0.25) {
-      setHqEvent(pickRandomHeadquartersEvent());
-    } else {
-      setHqEvent(null);
-    }
-  }, [showHqScreen, playerTeam, raceWeekendKey, hqEvent, hqEventRaceKey]);
+    setHqEvent(Math.random() < 0.25 ? pickRandomHeadquartersEvent() : null);
+  }, [playerTeam, raceWeekendKey, hqEventRaceKey]);
 
   const handleResolveHeadquartersEvent = useCallback((eventId: string, choiceId: string) => {
     if (!hqEvent || hqEvent.id !== eventId || !playerTeam) return;
