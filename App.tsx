@@ -1007,6 +1007,14 @@ const App: React.FC = () => {
     setWeekendModifiers([]);
   }, []);
 
+  useEffect(() => {
+    setPendingHqImpact(prev => (prev && prev.raceKey && prev.raceKey !== raceWeekendKey ? null : prev));
+    setActiveHqModifiers(prev => (prev && prev.raceKey && prev.raceKey !== raceWeekendKey ? null : prev));
+    setWeekendModifiers(prev => prev.filter(mod => !mod.raceKey || mod.raceKey === raceWeekendKey));
+    setHqEvent(prev => (prev && hqEventRaceKey && hqEventRaceKey !== raceWeekendKey ? null : prev));
+    setHqEventRaceKey(prev => (prev && prev !== raceWeekendKey ? null : prev));
+  }, [hqEventRaceKey, raceWeekendKey]);
+
   const weekendModifierMap = useMemo(() => {
     const byTeam = new Map<string, WeekendModifier[]>();
 
@@ -1271,9 +1279,13 @@ const App: React.FC = () => {
     setWeekendModifiers(weekendRolls);
 
     if (pendingHqImpact && playerTeam && pendingHqImpact.teamName === playerTeam) {
-      setActiveHqModifiers(pendingHqImpact);
-      setPendingHqImpact(null);
-      addLog(`[HQ] ${pendingHqImpact.title} effect active for this weekend.`);
+      if (!pendingHqImpact.raceKey || pendingHqImpact.raceKey === raceWeekendKey) {
+        setActiveHqModifiers(pendingHqImpact);
+        setPendingHqImpact(null);
+        addLog(`[HQ] ${pendingHqImpact.title} effect active for this weekend.`);
+      } else {
+        setPendingHqImpact(null);
+      }
     }
 
     setRoster(prev => prev.map(d => ({ ...d, form: Math.round(d.form * 0.9) })));
