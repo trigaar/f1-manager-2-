@@ -248,9 +248,11 @@ const sanitizeDriverState = (driver: Driver, baseLapRef: number, track: Track): 
 
     const safeTemperature = clampNumber(tyre.temperature, TIRE_BLANKET_TEMP, track.tyreStress > 4 ? 60 : 40, 150);
     const safeWear = clampNumber(tyre.wear, 0, 0, 100);
+    const safeForm = Number.isFinite(driver.form) ? driver.form : 0;
 
     return {
         ...driver,
+        form: safeForm,
         position: Math.max(1, driver.position || 1),
         startingPosition: Math.max(1, driver.startingPosition || 1),
         totalRaceTime: clampNumber(driver.totalRaceTime ?? 0, 0, 0, Number.MAX_SAFE_INTEGER),
@@ -419,8 +421,10 @@ const calculateNextStates = (
             continue;
         }
         
+        const driverForm = Number.isFinite(driver.form) ? driver.form : 0;
+
         let lapPerformanceModifier = (1 - driver.driverSkills.consistency / 110) * (Math.random() - 0.5) * 2.4; // -1 to 1 range, scaled by consistency
-        lapPerformanceModifier += (driver.form / 8); // Form has a stronger effect
+        lapPerformanceModifier += (driverForm / 8); // Form has a stronger effect
         if (driver.driverSkills.trait?.id === 'CLUTCH_PERFORMER' && nextRaceState.lap > nextRaceState.totalLaps - 10) {
             lapPerformanceModifier -= 0.1; // Small boost in final laps
         }
