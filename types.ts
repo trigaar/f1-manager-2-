@@ -57,6 +57,7 @@ export interface WeekendModifier {
   title: string;
   summary: string;
   teamName: string;
+  raceKey?: string;
   lapTimeModifier?: number; // Positive numbers reduce lap time (seconds), negative increases
   qualifyingSkillDelta?: number;
   paceDelta?: number;

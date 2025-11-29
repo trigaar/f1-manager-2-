@@ -1010,15 +1010,17 @@ const App: React.FC = () => {
   const weekendModifierMap = useMemo(() => {
     const byTeam = new Map<string, WeekendModifier[]>();
 
-    if (activeHqModifiers) {
+    if (activeHqModifiers && (!activeHqModifiers.raceKey || activeHqModifiers.raceKey === raceWeekendKey)) {
       byTeam.set(activeHqModifiers.teamName, [activeHqModifiers]);
     }
 
-    weekendModifiers.forEach(mod => {
-      const existing = byTeam.get(mod.teamName) || [];
-      existing.push(mod);
-      byTeam.set(mod.teamName, existing);
-    });
+    weekendModifiers
+      .filter(mod => !mod.raceKey || mod.raceKey === raceWeekendKey)
+      .forEach(mod => {
+        const existing = byTeam.get(mod.teamName) || [];
+        existing.push(mod);
+        byTeam.set(mod.teamName, existing);
+      });
 
     const combined = new Map<string, WeekendModifier>();
 
@@ -1034,11 +1036,12 @@ const App: React.FC = () => {
         title: mods.map(m => m.title).filter(Boolean).join(' & ') || mods[0].title,
         summary: mods.map(m => m.summary).filter(Boolean).join(' | ') || mods[0].summary,
         teamName,
+        raceKey: raceWeekendKey,
       } as WeekendModifier);
     });
 
     return combined;
-  }, [activeHqModifiers, mergeHqEffects, weekendModifiers]);
+  }, [activeHqModifiers, mergeHqEffects, weekendModifiers, raceWeekendKey]);
 
   const combineWeekendModifiers = useCallback((teamName: string, modifierOverride?: WeekendModifier[]) => {
     if (modifierOverride) {
@@ -1201,6 +1204,7 @@ const App: React.FC = () => {
       title: hqEvent.title,
       summary: selectedChoice.summary,
       teamName: playerTeam,
+      raceKey: raceWeekendKey,
       choiceId: selectedChoice.id,
       riskTriggered,
     };
@@ -1217,7 +1221,7 @@ const App: React.FC = () => {
     setHqEvent(null);
     const riskNote = riskTriggered && selectedChoice.risk?.summary ? ` (${selectedChoice.risk.summary})` : '';
     addLog(`[HQ] ${hqEvent.title}: ${selectedChoice.label} chosen. ${selectedChoice.summary}${riskNote}. Impact queued for the next race.`);
-  }, [hqEvent, mergeHqEffects, playerTeam, addLog]);
+  }, [hqEvent, mergeHqEffects, playerTeam, addLog, raceWeekendKey]);
 
   const handleSetPlayerTeam = (teamName: string) => {
     // Clear any team-specific weekend or HQ state before switching control so
@@ -1253,7 +1257,7 @@ const App: React.FC = () => {
         const teamDrivers = roster.filter(d => d.car.teamName === teamName && d.status === 'Active');
         const teamPersonnel = personnel.find(p => p.teamName === teamName);
         const outcome = rollPreRaceEventForTeam(teamName, teamDrivers, teamPersonnel);
-        weekendRolls.push(outcome.modifier);
+        weekendRolls.push({ ...outcome.modifier, raceKey: raceWeekendKey });
         if (outcome.budgetDelta) {
           setTeamFinances(prev => prev.map(tf => tf.teamName === teamName ? {
             ...tf,
