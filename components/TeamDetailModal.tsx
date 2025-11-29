@@ -185,6 +185,7 @@ interface TeamDetailModalProps {
 
 const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ isOpen, onClose, team }) => {
   const [chartMode, setChartMode] = useState<'bar' | 'radar'>('bar');
+  const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
   if (!isOpen || !team) return null;
 
   const { teamHexColor } = getTeamColors(team.car.teamName);
@@ -214,20 +215,31 @@ const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ isOpen, onClose, team
         </div>
 
         <div className="p-6">
-            <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-semibold text-gray-300 uppercase tracking-wider">Drivers</h3>
-                <div className="flex bg-gray-700/70 rounded-lg overflow-hidden border border-gray-600">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-4">
+                <div>
+                    <h3 className="text-xl font-semibold text-gray-300 uppercase tracking-wider">Drivers</h3>
+                    <p className="text-sm text-gray-400">Toggle between core stats and a compact advanced view.</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex bg-gray-700/70 rounded-lg overflow-hidden border border-gray-600">
+                        <button
+                            className={`px-3 py-2 text-sm font-semibold ${chartMode === 'bar' ? 'bg-gray-600 text-white' : 'text-gray-300 hover:text-white'}`}
+                            onClick={() => setChartMode('bar')}
+                        >
+                            Bar
+                        </button>
+                        <button
+                            className={`px-3 py-2 text-sm font-semibold ${chartMode === 'radar' ? 'bg-gray-600 text-white' : 'text-gray-300 hover:text-white'}`}
+                            onClick={() => setChartMode('radar')}
+                        >
+                            Radar
+                        </button>
+                    </div>
                     <button
-                        className={`px-3 py-2 text-sm font-semibold ${chartMode === 'bar' ? 'bg-gray-600 text-white' : 'text-gray-300 hover:text-white'}`}
-                        onClick={() => setChartMode('bar')}
+                        className="px-3 py-2 text-sm font-semibold bg-gray-800/70 border border-gray-700 rounded-lg text-gray-200 hover:border-gray-500"
+                        onClick={() => setShowAdvanced(prev => !prev)}
                     >
-                        Bar
-                    </button>
-                    <button
-                        className={`px-3 py-2 text-sm font-semibold ${chartMode === 'radar' ? 'bg-gray-600 text-white' : 'text-gray-300 hover:text-white'}`}
-                        onClick={() => setChartMode('radar')}
-                    >
-                        Radar
+                        {showAdvanced ? 'Hide advanced' : 'Show advanced'}
                     </button>
                 </div>
             </div>
@@ -242,6 +254,8 @@ const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ isOpen, onClose, team
                         const value = driver.driverSkills[attr];
                         return typeof value === 'number' ? value : 0;
                     });
+
+                    const visibleSkillAttributes = showAdvanced ? DRIVER_SKILL_ORDER : RADAR_ATTRIBUTES;
 
                     return (
                         <div key={driver.id} className="bg-gray-900/60 p-5 rounded-xl border border-gray-800 shadow-xl space-y-4">
@@ -267,21 +281,25 @@ const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ isOpen, onClose, team
                                         {avgSeasonRating ? avgSeasonRating.toFixed(0) : '-'}
                                     </p>
                                 </div>
-                                <div className="bg-gray-800/60 rounded-lg p-3 border border-gray-700/60 text-center">
-                                    <p className="text-[11px] text-gray-400 uppercase">Wins</p>
-                                    <p className="text-2xl font-bold text-white">{driver.careerWins || 0}</p>
-                                </div>
-                                <div className="bg-gray-800/60 rounded-lg p-3 border border-gray-700/60 text-center">
-                                    <p className="text-[11px] text-gray-400 uppercase">Podiums</p>
-                                    <p className="text-2xl font-bold text-white">{driver.careerPodiums || 0}</p>
-                                </div>
+                                {showAdvanced && (
+                                    <>
+                                        <div className="bg-gray-800/60 rounded-lg p-3 border border-gray-700/60 text-center">
+                                            <p className="text-[11px] text-gray-400 uppercase">Wins</p>
+                                            <p className="text-2xl font-bold text-white">{driver.careerWins || 0}</p>
+                                        </div>
+                                        <div className="bg-gray-800/60 rounded-lg p-3 border border-gray-700/60 text-center">
+                                            <p className="text-[11px] text-gray-400 uppercase">Podiums</p>
+                                            <p className="text-2xl font-bold text-white">{driver.careerPodiums || 0}</p>
+                                        </div>
+                                    </>
+                                )}
                             </div>
 
                             <div className="grid lg:grid-cols-2 gap-4 items-start">
                                 <div className="bg-gray-900/60 rounded-lg p-3 border border-gray-800/80">
                                     {chartMode === 'bar' ? (
                                         <div className="grid sm:grid-cols-2 gap-3">
-                                            {DRIVER_SKILL_ORDER.map((key) => {
+                                            {visibleSkillAttributes.map((key) => {
                                                 const value = driver.driverSkills[key];
                                                 if(typeof value === 'number') {
                                                     return (
@@ -337,7 +355,7 @@ const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ isOpen, onClose, team
                                         <div className="bg-gray-900/70 border border-gray-800 rounded-lg p-3">
                                             <p className="text-xs text-gray-400 uppercase mb-1">Specialties</p>
                                             <div className="flex flex-wrap gap-2">
-                                                {driver.driverSkills.specialties.slice(0, 3).map((specialty) => (
+                                                {driver.driverSkills.specialties.slice(0, showAdvanced ? 6 : 3).map((specialty) => (
                                                     <span
                                                         key={specialty}
                                                         className="px-2 py-1 text-xs rounded-full border border-white/25 text-white bg-white/10"
@@ -348,21 +366,23 @@ const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ isOpen, onClose, team
                                             </div>
                                         </div>
                                     )}
-                                    <TraitDisplay trait={driver.driverSkills.trait} />
+                                    {showAdvanced && <TraitDisplay trait={driver.driverSkills.trait} />}
                                 </div>
                             </div>
 
-                            <div className="bg-gray-900/60 border border-gray-800 rounded-lg p-3">
-                                <h4 className="text-sm font-semibold mb-2 text-gray-300 uppercase tracking-wider">Career History</h4>
-                                <div className="text-xs text-gray-300 space-y-1 max-h-24 overflow-y-auto bg-gray-800/40 p-2 rounded-md">
-                                    {Object.entries(driver.careerHistory || {}).sort((a,b) => parseInt(b[0]) - parseInt(a[0])).map(([year, team]) => (
-                                        <div key={year} className="flex justify-between">
-                                            <span>{year}:</span>
-                                            <span className="font-semibold">{team}</span>
-                                        </div>
-                                    ))}
+                            {showAdvanced && (
+                                <div className="bg-gray-900/60 border border-gray-800 rounded-lg p-3">
+                                    <h4 className="text-sm font-semibold mb-2 text-gray-300 uppercase tracking-wider">Career History</h4>
+                                    <div className="text-xs text-gray-300 space-y-1 max-h-24 overflow-y-auto bg-gray-800/40 p-2 rounded-md">
+                                        {Object.entries(driver.careerHistory || {}).sort((a,b) => parseInt(b[0]) - parseInt(a[0])).map(([year, team]) => (
+                                            <div key={year} className="flex justify-between">
+                                                <span>{year}:</span>
+                                                <span className="font-semibold">{team}</span>
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
-                            </div>
+                            )}
                         </div>
                     )
                 })}

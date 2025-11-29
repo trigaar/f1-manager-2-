@@ -269,6 +269,19 @@ const sanitizeDriverState = (driver: Driver, baseLapRef: number, track: Track): 
     };
 };
 
+const sanitizeLapTiming = (driver: Driver, baseLapRef: number): Driver => {
+    const safeLapTime = clampNumber(driver.lapTime ?? baseLapRef, baseLapRef, 40, 400);
+    const safeTotalTime = clampNumber(driver.totalRaceTime ?? safeLapTime, safeLapTime, 0, Number.MAX_SAFE_INTEGER);
+    const safeGap = Number.isFinite(driver.gapToLeader) && driver.gapToLeader >= 0 ? driver.gapToLeader : 0;
+
+    return {
+        ...driver,
+        lapTime: safeLapTime,
+        totalRaceTime: safeTotalTime,
+        gapToLeader: safeGap,
+    };
+};
+
 
 const calculateNextStates = (
     prevDrivers: Driver[],
@@ -978,6 +991,8 @@ const calculateNextStates = (
         }
     }
     
+    nextDrivers = nextDrivers.map(driver => sanitizeLapTiming(driver, baseLapReference));
+
     nextDrivers.sort(sortDrivers);
     const leaderTime = nextDrivers.find(d => d.raceStatus !== 'Crashed' && d.raceStatus !== 'DNF')?.totalRaceTime || 0;
     nextDrivers.forEach((driver, i) => {
