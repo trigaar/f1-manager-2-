@@ -55,5 +55,23 @@ export const DRIVER_TRAITS: { [id: string]: DriverTrait } = {
         name: 'Rocket Start',
         description: 'Has an uncanny ability to gain positions on the opening lap.',
         rarity: DriverTraitRarity.Rare,
+    },
+    DRS_ASSASSIN: {
+        id: 'DRS_ASSASSIN',
+        name: 'DRS Assassin',
+        description: 'Times DRS runs perfectly, maximizing straight-line attacks without cooking the tyres.',
+        rarity: DriverTraitRarity.Rare,
+    },
+    NIGHT_OPS: {
+        id: 'NIGHT_OPS',
+        name: 'Night Ops',
+        description: 'Composed under lights and changeable conditions, rarely rattled by chaos.',
+        rarity: DriverTraitRarity.Rare,
+    },
+    STRATEGY_SAVANT: {
+        id: 'STRATEGY_SAVANT',
+        name: 'Strategy Savant',
+        description: 'Reads tyre and fuel windows instinctively, stretching stints without losing pace.',
+        rarity: DriverTraitRarity.Rare,
     }
 };

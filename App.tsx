@@ -1,8 +1,9 @@
 
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { RaceState, Driver, Track, GamePhase, TyreCompound, LapEvent, RaceFlag, InitialDriver, QualifyingResult, OffSeasonPhase, TeamFinances, TeamPersonnel, PersonnelChangeEvent, DriverMarketEvent, Car, CarDevelopmentResult, DriverStanding, RegulationEvent, RookieDriver, Tyre, DriverProgressionEvent, RaceHistory, LapEventType, ResourceAllocationEvent, PracticeResult, AiRaceSummary, AiSeasonReview, UpcomingRaceQuote, TeamDebrief, DriverDebrief, PlayerCarDev, AffiliateDriver, AffiliateChangeEvent, ConstructorStanding, ShortlistDriver } from './types';
+import { RaceState, Driver, Track, GamePhase, TyreCompound, LapEvent, RaceFlag, InitialDriver, QualifyingResult, OffSeasonPhase, TeamFinances, TeamPersonnel, PersonnelChangeEvent, DriverMarketEvent, Car, CarDevelopmentResult, DriverStanding, RegulationEvent, RookieDriver, Tyre, DriverProgressionEvent, RaceHistory, LapEventType, ResourceAllocationEvent, PracticeResult, AiRaceSummary, AiSeasonReview, UpcomingRaceQuote, TeamDebrief, DriverDebrief, PlayerCarDev, AffiliateDriver, AffiliateChangeEvent, ConstructorStanding, ShortlistDriver, HeadquartersEvent, HeadquartersEventEffect, HeadquartersEventResolution, WeekendModifier } from './types';
 import { FULL_SEASON_TRACKS, SHORT_SEASON_TRACKS, INITIAL_DRIVERS, TYRE_LIFE, INITIAL_PERSONNEL, CARS, TEAM_COLORS, ROOKIE_POOL, TYRE_PROPERTIES, TIRE_BLANKET_TEMP, AFFILIATE_CANDIDATES } from './constants';
+import { pickRandomHeadquartersEvent } from './constants/headquartersEvents';
 import { generateLocalStrategy } from './services/strategyService';
 import { runQ1, runQ2, runQ3 } from './services/qualifyingService';
 import { simulateKeyMomentIncidents, simulateLapIncidents } from './services/incidentService';
@@ -17,7 +18,6 @@ import { useConstructorStandings } from './hooks/useConstructorStandings';
 import { useSeasonHistory } from './hooks/useSeasonHistory';
 import { useRaceHistory } from './hooks/useRaceHistory';
 import { calculateTeamPrestige, calculateDriverStockValue, calculateMarketVolatilityIndex } from './services/postSeasonService';
-import { generateNewRookies } from './services/rookieService';
 import { runDriverProgression } from './services/driverProgressionService';
 import { runResourceAllocation } from './services/resourceAllocationService';
 import { runPracticeSession } from './services/practiceService';
@@ -25,6 +25,9 @@ import { generateAiRaceSummary } from './services/aiSummaryService';
 import { generateAiSeasonReview } from './services/aiSeasonReviewService';
 import { generateAiDriverPreview } from './services/aiDriverPreviewService';
 import { runAffiliateProgression, runAIAffiliateSignings } from './services/affiliateService';
+import { buildInitialRaceState, calculateNextSeasonTracks, createNewRookies, updateRosterForNewSeason } from './services/seasonResetService';
+import { calculateCarLinkImpact } from './services/carLinkService';
+import { rollPreRaceEventForTeam } from './services/preRaceEventService';
 import SetupScreen from './components/SetupScreen';
 import Leaderboard from './components/Leaderboard';
 import RaceControlPanel from './components/RaceControlPanel';
@@ -64,9 +67,11 @@ const sortDrivers = (a: Driver, b: Driver) => {
     if (aIsOut && bIsOut) {
         return (b.retirementLap || 0) - (a.retirementLap || 0);
     }
-    
+
     return a.totalRaceTime - b.totalRaceTime;
 };
+
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 const chooseOptimalWetTyre = (
     driver: Driver, 
@@ -209,6 +214,61 @@ const calculateRaceTSM = (car: Car, track: Track): number => {
     return tsm;
 };
 
+const clampNumber = (value: number, fallback: number, min?: number, max?: number): number => {
+    if (!Number.isFinite(value)) return fallback;
+    if (min !== undefined && value < min) return min;
+    if (max !== undefined && value > max) return max;
+    return value;
+};
+
+const sanitizeTrackState = (track: Track): Track => {
+    return {
+        ...track,
+        baseLapTime: clampNumber(track.baseLapTime, 90, 60, 140),
+        pitLaneTimeLoss: clampNumber(track.pitLaneTimeLoss, 20, 12, 40),
+        laps: Math.max(10, track.laps || 50),
+        tyreStress: clampNumber(track.tyreStress, 3, 1, 6),
+        brakeWear: clampNumber(track.brakeWear, 3, 1, 6),
+        powerSensitivity: clampNumber(track.powerSensitivity, 3, 1, 6),
+        safetyCarProbability: clampNumber(track.safetyCarProbability, 0.5, 0, 1),
+        virtualSafetyCarProbability: clampNumber(track.virtualSafetyCarProbability, 0.5, 0, 1),
+    };
+};
+
+const sanitizeDriverState = (driver: Driver, baseLapRef: number, track: Track): Driver => {
+    const fallbackTyre = driver.currentTyres?.compound || TyreCompound.Medium;
+    const tyre = driver.currentTyres || {
+        compound: fallbackTyre,
+        wear: 0,
+        age: 0,
+        temperature: TIRE_BLANKET_TEMP,
+        condition: 'Cold' as const,
+    };
+
+    const safeTemperature = clampNumber(tyre.temperature, TIRE_BLANKET_TEMP, track.tyreStress > 4 ? 60 : 40, 150);
+    const safeWear = clampNumber(tyre.wear, 0, 0, 100);
+
+    return {
+        ...driver,
+        position: Math.max(1, driver.position || 1),
+        startingPosition: Math.max(1, driver.startingPosition || 1),
+        totalRaceTime: clampNumber(driver.totalRaceTime ?? 0, 0, 0, Number.MAX_SAFE_INTEGER),
+        gapToLeader: clampNumber(driver.gapToLeader ?? 0, 0, 0, Number.MAX_SAFE_INTEGER),
+        lapTime: clampNumber(driver.lapTime ?? baseLapRef, baseLapRef, 40, Number.MAX_SAFE_INTEGER),
+        fuelLoad: clampNumber(driver.fuelLoad ?? 105, 105, 0, 120),
+        currentTyres: {
+            ...tyre,
+            wear: safeWear,
+            age: clampNumber(tyre.age ?? 0, 0, 0, 200),
+            temperature: safeTemperature,
+            condition: tyre.condition || 'Cold',
+        },
+        penalties: driver.penalties || [],
+        compoundsUsed: driver.compoundsUsed?.length ? driver.compoundsUsed : [fallbackTyre],
+        raceStatus: driver.raceStatus || 'Racing',
+    };
+};
+
 
 const calculateNextStates = (
     prevDrivers: Driver[],
@@ -224,6 +284,29 @@ const calculateNextStates = (
     let nextRaceState = { ...prevRaceState };
     let lapEvents: LapEvent[] = [];
     let flagTriggers: RaceFlag[] = [];
+
+    // Guardrails for any corrupt state that might have slipped through between sessions
+    const safeTrack = sanitizeTrackState(nextRaceState.track);
+    nextRaceState = {
+        ...nextRaceState,
+        track: safeTrack,
+        airTemp: clampNumber(nextRaceState.airTemp, 25, -10, 60),
+        trackTemp: clampNumber(nextRaceState.trackTemp, 40, -10, 80),
+        trackCondition: {
+            waterLevel: clampNumber(nextRaceState.trackCondition?.waterLevel ?? 0, 0, 0, 100),
+            gripLevel: clampNumber(nextRaceState.trackCondition?.gripLevel ?? 100, 100, 0, 100),
+        },
+        masterWeatherForecast: nextRaceState.masterWeatherForecast?.length ? nextRaceState.masterWeatherForecast : Array.from({
+            length: safeTrack.laps
+        }, () => nextRaceState.weather || 'Sunny'),
+        teamWeatherForecasts: nextRaceState.teamWeatherForecasts || {},
+    };
+
+    const baseLapReference = safeTrack.baseLapTime;
+    nextDrivers = nextDrivers.map(driver => sanitizeDriverState(driver, baseLapReference, safeTrack));
+
+    // Cached maps keep lookups predictable during the lap loop
+    const personnelMap = new Map(personnel.map(p => [p.teamName, p]));
 
     if (nextRaceState.isRestarting) {
         addLog("The grid is reformed for a standing restart. All time gaps have been nullified.");
@@ -322,8 +405,8 @@ const calculateNextStates = (
             continue;
         }
         
-        let lapPerformanceModifier = (1 - driver.driverSkills.consistency / 125) * (Math.random() - 0.5) * 2; // -1 to 1 range, scaled by consistency
-        lapPerformanceModifier += (driver.form / 10); // Form has a stronger effect
+        let lapPerformanceModifier = (1 - driver.driverSkills.consistency / 110) * (Math.random() - 0.5) * 2.4; // -1 to 1 range, scaled by consistency
+        lapPerformanceModifier += (driver.form / 8); // Form has a stronger effect
         if (driver.driverSkills.trait?.id === 'CLUTCH_PERFORMER' && nextRaceState.lap > nextRaceState.totalLaps - 10) {
             lapPerformanceModifier -= 0.1; // Small boost in final laps
         }
@@ -338,7 +421,7 @@ const calculateNextStates = (
         const teamForecast = nextRaceState.teamWeatherForecasts[driver.car.teamName] || nextRaceState.masterWeatherForecast;
         const currentTyre = driver.currentTyres.compound;
         const wasOnSlicks = currentTyre === TyreCompound.Soft || currentTyre === TyreCompound.Medium || currentTyre === TyreCompound.Hard;
-        const teamPersonnel = personnel.find(p => p.teamName === driver.car.teamName);
+        const teamPersonnel = personnelMap.get(driver.car.teamName);
         const strategyRating = teamPersonnel ? (((teamPersonnel.teamPrincipal?.leadership || 15) + (teamPersonnel.headOfTechnical?.innovation || 15)) / 40) * 100 : 75;
         const lapsToLookAhead = strategyRating > 90 ? 2 : 1;
         const predictedWeatherInWindow = teamForecast.slice(nextRaceState.lap, nextRaceState.lap + lapsToLookAhead);
@@ -433,6 +516,9 @@ const calculateNextStates = (
         } else if (driver.raceStatus === 'In Pits') {
             driver.pittedThisLap = true;
             driver.lapTime = nextRaceState.track.baseLapTime + nextRaceState.track.pitLaneTimeLoss;
+            if (driver.hqModifiers?.pitStopTimeDelta) {
+                driver.lapTime -= driver.hqModifiers.pitStopTimeDelta;
+            }
             const unservedTimePenalties = driver.penalties.filter(p => p.type === 'Time' && !p.served);
             if (unservedTimePenalties.length > 0) {
                 const totalPenaltyToServe = unservedTimePenalties.reduce((sum, p) => sum + p.duration, 0);
@@ -456,7 +542,8 @@ const calculateNextStates = (
                 const pitCrewRating = (teamPersonnel?.facilities.chassis || 5) * 5 + (teamPersonnel?.teamPrincipal?.leadership || 10) * 2.5; // Max 75
                 const pitRoll = Math.random();
                 const fastStopChance = Math.max(0, (pitCrewRating - 50) / 100 * 0.4); // max ~10%
-                const disastrousStopChance = Math.max(0, (60 - pitCrewRating) / 100 * 0.2); // max ~10%
+                const baseMistakeDelta = driver.hqModifiers?.pitMistakeChanceDelta ? driver.hqModifiers.pitMistakeChanceDelta / 100 : 0;
+                const disastrousStopChance = Math.max(0, (60 - pitCrewRating) / 100 * 0.2) + baseMistakeDelta; // max ~10%
                 
                 if (pitRoll < fastStopChance) {
                     driver.lapTime -= 0.8;
@@ -464,7 +551,7 @@ const calculateNextStates = (
                 } else if (pitRoll < fastStopChance + disastrousStopChance) {
                     driver.lapTime += 6;
                     lapEvents.push({type: 'DISASTROUS_PIT_STOP', driverName: driver.name});
-                } else if (pitRoll < fastStopChance + disastrousStopChance + 0.15) { // 15% base chance of a slow stop
+                } else if (pitRoll < fastStopChance + disastrousStopChance + 0.15 + baseMistakeDelta) { // 15% base chance of a slow stop
                     driver.lapTime += 3;
                     lapEvents.push({type: 'SLOW_PIT_STOP', driverName: driver.name});
                 }
@@ -528,7 +615,19 @@ const calculateNextStates = (
             
             lapEvents.push({ type: 'PIT_EXIT', driverName: driver.name, data: { tyre: nextTyre } });
         } else {
+            const specialties = driver.driverSkills.specialties || [];
+            const normalizedSpecialties = specialties.map(s => s.toLowerCase());
+            const carLinkImpact = calculateCarLinkImpact(driver, { lapNumber: nextRaceState.lap, session: 'race' });
+
             let baseLapTime = nextRaceState.track.baseLapTime + (newWaterLevel / 10);
+
+            if (!Number.isFinite(baseLapTime)) {
+                baseLapTime = Math.max(70, (nextRaceState.track.baseLapTime || 90));
+            }
+
+            if (driver.hqModifiers?.lapTimeModifier) {
+                baseLapTime -= driver.hqModifiers.lapTimeModifier;
+            }
 
             if (driver.gripAdvantage) {
                 baseLapTime -= driver.gripAdvantage.bonus;
@@ -538,6 +637,9 @@ const calculateNextStates = (
             if (trackWinners.some(w => w.winnerId === driver.id)) {
                 baseLapTime -= 0.15;
             }
+
+            baseLapTime -= carLinkImpact.synergyBonus;
+            baseLapTime += carLinkImpact.adaptationDrag;
 
             const raceTSM = calculateRaceTSM(driver.car, nextRaceState.track);
             baseLapTime -= raceTSM;
@@ -552,9 +654,10 @@ const calculateNextStates = (
             if (driver.battle) heatInput += 2;
             heatInput += nextRaceState.track.tyreStress;
             heatInput *= tyreProps.heatGenerationFactor;
-            let heatManagementMultiplier = 1 - (driver.driverSkills.tyreManagement - 85) / 150;
+            let heatManagementMultiplier = 1 - (driver.driverSkills.tyreManagement - 85) / 140;
             if (driver.driverSkills.trait?.id === 'TYRE_WHISPERER') heatManagementMultiplier -= 0.2;
-            heatInput *= heatManagementMultiplier; 
+            if (normalizedSpecialties.some(s => s.includes('heat'))) heatManagementMultiplier -= 0.05;
+            heatInput *= heatManagementMultiplier;
 
             const heatDissipation = (5 + (1 - (driver.battle ? 1 : 0)) * 2) * tyreProps.heatDissipationFactor;
 
@@ -595,22 +698,42 @@ const calculateNextStates = (
                 else if (currentTyre === TyreCompound.Wet && newWeather === 'Light Rain') baseLapTime += 6;
             } else if (!wasOnSlicks) baseLapTime += 12;
             baseLapTime += driver.fuelLoad * 0.03;
-            let wetWeatherEffect = (1.1 + (100 - driver.driverSkills.wetWeatherSkill) / 100 * 0.2);
+            const paceEdge = (driver.driverSkills.overall - 80) * 0.016;
+            const qualiSharpness = Math.max(0, driver.driverSkills.qualifyingPace - 80) * 0.009;
+            const focusDrag = (100 - driver.driverSkills.consistency) * 0.013;
+
+            let specialtyLapBonus = 0;
+            if (normalizedSpecialties.some(s => s.includes('qual'))) specialtyLapBonus += 0.08;
+            if (normalizedSpecialties.some(s => s.includes('race')) || normalizedSpecialties.some(s => s.includes('pace'))) specialtyLapBonus += 0.05;
+            if (normalizedSpecialties.some(s => s.includes('wet'))) specialtyLapBonus += isWet ? 0.12 : 0.02;
+            if (normalizedSpecialties.some(s => s.includes('night'))) specialtyLapBonus += (newWeather === 'Light Rain' || newWeather === 'Heavy Rain') ? 0.04 : 0.02;
+
+            baseLapTime -= paceEdge + qualiSharpness;
+            baseLapTime -= specialtyLapBonus;
+            baseLapTime += focusDrag;
+
+            let wetWeatherEffect = (1.1 + (100 - driver.driverSkills.wetWeatherSkill) / 100 * 0.3);
             if (driver.driverSkills.trait?.id === 'RAIN_MASTER') wetWeatherEffect -= 0.1;
             if (isWet) baseLapTime *= wetWeatherEffect;
             if (newWeather === 'Extreme Rain') baseLapTime *= 1.15;
             if (nextRaceState.flag === RaceFlag.SafetyCar) baseLapTime *= 1.5;
             if (nextRaceState.flag === RaceFlag.VirtualSafetyCar) baseLapTime *= 1.3;
             if (driver.raceStatus === 'Damaged') baseLapTime *= 1.05;
-            baseLapTime += (100 - driver.driverSkills.raceCraft) * 0.017 + lapPerformanceModifier;
-            driver.lapTime = parseFloat(baseLapTime.toFixed(3));
+            let raceCraftPenalty = (100 - driver.driverSkills.raceCraft) * 0.026;
+            if (normalizedSpecialties.some(s => s.includes('defens')) || normalizedSpecialties.some(s => s.includes('racecraft'))) {
+                raceCraftPenalty *= 0.8;
+            }
+            baseLapTime += raceCraftPenalty + lapPerformanceModifier;
+            const safeLapTime = clampNumber(parseFloat(baseLapTime.toFixed(3)), baseLapReference, 40, 400);
+            driver.lapTime = safeLapTime;
             if (driver.raceStatus === 'Racing' && nextRaceState.flag === RaceFlag.Green && (!fastestLap || driver.lapTime < fastestLap.time)) {
                 setFastestLap({ driverName: driver.name, time: driver.lapTime });
                 lapEvents.push({ type: 'FASTEST_LAP', driverName: driver.name, data: { time: driver.lapTime }});
             }
         }
-        
-        driver.totalRaceTime += driver.lapTime;
+
+        const lapTimeApplied = clampNumber(driver.lapTime, baseLapReference, 40, 400);
+        driver.totalRaceTime = clampNumber(driver.totalRaceTime + lapTimeApplied, lapTimeApplied, 0, Number.MAX_SAFE_INTEGER);
         let fuelConsumption = 1.8;
         if (driver.paceMode === 'Pushing') fuelConsumption *= 1.1;
         if (driver.paceMode === 'Conserving') fuelConsumption *= 0.85;
@@ -618,14 +741,17 @@ const calculateNextStates = (
 
         const trackStressModifier = 0.7 + (nextRaceState.track.tyreStress / 5) * 0.6;
         const baseDeg = (100 / (TYRE_LIFE[driver.currentTyres.compound] || 30)) * trackStressModifier;
-        let driverTyreMultiplier = 1.6 - (driver.driverSkills.tyreManagement / 100);
+        let driverTyreMultiplier = Math.max(0.55, 1.8 - (driver.driverSkills.tyreManagement / 90));
         if (driver.driverSkills.trait?.id === 'TYRE_WHISPERER') driverTyreMultiplier -= 0.4;
+        if (normalizedSpecialties.some(s => s.includes('tyre') || s.includes('stint'))) driverTyreMultiplier -= 0.1;
         const carTyreMultiplier = 1.3 - (driver.car.tyreWearFactor / 100);
         let degradation = baseDeg * driverTyreMultiplier * carTyreMultiplier;
         if (driver.paceMode === 'Pushing') degradation *= 1.2;
         if (driver.paceMode === 'Conserving') degradation *= 0.7;
         if (!isWet && wasOnSlicks === false) degradation *= 3.5;
         if (isWet) degradation *= 0.7;
+
+        if (driver.hqModifiers?.tyreDegMultiplier) degradation *= driver.hqModifiers.tyreDegMultiplier;
 
         if (driver.currentTyres.condition === 'Hot' || driver.currentTyres.condition === 'Blistering') degradation *= 1.5;
         if (driver.currentTyres.condition === 'Cold' || driver.currentTyres.condition === 'Graining') degradation *= 1.3;
@@ -663,7 +789,7 @@ const calculateNextStates = (
             const needsStrategicStop = areTyresCritical || isPlannedPitLap || shouldAttemptUndercut;
 
             if (needsStrategicStop) {
-                let tyreLifeMultiplier = 1.6 - (driver.driverSkills.tyreManagement / 100);
+                let tyreLifeMultiplier = Math.max(0.7, 1.8 - (driver.driverSkills.tyreManagement / 90));
                 if (driver.driverSkills.trait?.id === 'TYRE_WHISPERER') tyreLifeMultiplier += 0.2;
                 const adjustedTyreLife = TYRE_LIFE[driver.currentTyres.compound] * tyreLifeMultiplier;
                 const lapsLeftOnTyre = adjustedTyreLife * (1 - driver.currentTyres.wear / 100);
@@ -718,16 +844,16 @@ const calculateNextStates = (
                     let attackingProwess = 0;
                     let defensiveSkill = 0;
                     
-                    attackingProwess += attacker.driverSkills.raceCraft * 1.2;
+                    attackingProwess += attacker.driverSkills.raceCraft * 1.4;
                     if (attacker.driverSkills.trait?.id === 'THE_OVERTAKER') attackingProwess += 10;
-                    attackingProwess += (attacker.driverSkills.aggressionIndex - 75) * 0.2;
+                    attackingProwess += (attacker.driverSkills.aggressionIndex - 75) * 0.3;
                     attackingProwess += (attacker.car.overallPace - 85) * 0.5;
                     if (attacker.paceMode === 'Pushing') attackingProwess += 8;
                     if (attacker.paceMode === 'Conserving') attackingProwess -= 5;
-                    
-                    defensiveSkill += defender.driverSkills.raceCraft;
+
+                    defensiveSkill += defender.driverSkills.raceCraft * 1.2;
                     if (defender.driverSkills.trait?.id === 'THE_WALL') defensiveSkill += 10;
-                    defensiveSkill += (defender.driverSkills.consistency - 85) * 0.3;
+                    defensiveSkill += (defender.driverSkills.consistency - 85) * 0.45;
                     defensiveSkill += (defender.car.overallPace - 85) * 0.5;
                     if (defender.paceMode === 'Conserving') defensiveSkill -= 8;
                     
@@ -747,7 +873,7 @@ const calculateNextStates = (
                     
                     let attackerUsedERS = false;
                     let defenderUsedERS = false;
-                    const ersAttackChance = 0.3 + ((attackingProwess - defensiveSkill) / 100) + (attacker.driverSkills.aggressionIndex / 300);
+                    const ersAttackChance = 0.28 + ((attackingProwess - defensiveSkill) / 80) + (attacker.driverSkills.aggressionIndex / 250);
                     if (attacker.ersCharge >= 20 && Math.random() < ersAttackChance) {
                         attackingProwess += 15;
                         attackerUsedERS = true;
@@ -931,8 +1057,137 @@ const App: React.FC = () => {
   const [showGarageScreen, setShowGarageScreen] = useState<boolean>(false);
   const [showHqScreen, setShowHqScreen] = useState<boolean>(false);
   const [showHowToPlay, setShowHowToPlay] = useState<boolean>(false);
+  const [hqEvent, setHqEvent] = useState<HeadquartersEvent | null>(null);
+  const [hqEventRaceKey, setHqEventRaceKey] = useState<string | null>(null);
+  const [pendingHqImpact, setPendingHqImpact] = useState<HeadquartersEventResolution | null>(null);
+  const [activeHqModifiers, setActiveHqModifiers] = useState<HeadquartersEventResolution | null>(null);
+  const [weekendModifiers, setWeekendModifiers] = useState<WeekendModifier[]>([]);
 
-  const activeRoster = useMemo(() => roster.filter(d => d.status === 'Active'), [roster]);
+  const mergeHqEffects = useCallback((base: HeadquartersEventEffect, extra: HeadquartersEventEffect): HeadquartersEventEffect => ({
+    lapTimeModifier: (base.lapTimeModifier || 0) + (extra.lapTimeModifier || 0),
+    qualifyingSkillDelta: (base.qualifyingSkillDelta || 0) + (extra.qualifyingSkillDelta || 0),
+    paceDelta: (base.paceDelta || 0) + (extra.paceDelta || 0),
+    reliabilityDelta: (base.reliabilityDelta || 0) + (extra.reliabilityDelta || 0),
+    tyreLifeMultiplier: (base.tyreLifeMultiplier || 1) * (extra.tyreLifeMultiplier || 1),
+    tyreWearDelta: (base.tyreWearDelta || 0) + (extra.tyreWearDelta || 0),
+    tyreDegMultiplier: (base.tyreDegMultiplier || 1) * (extra.tyreDegMultiplier || 1),
+    dnfRiskDelta: (base.dnfRiskDelta || 0) + (extra.dnfRiskDelta || 0),
+    pitStopTimeDelta: (base.pitStopTimeDelta || 0) + (extra.pitStopTimeDelta || 0),
+    pitMistakeChanceDelta: (base.pitMistakeChanceDelta || 0) + (extra.pitMistakeChanceDelta || 0),
+    moraleDelta: (base.moraleDelta || 0) + (extra.moraleDelta || 0),
+    reputationDelta: (base.reputationDelta || 0) + (extra.reputationDelta || 0),
+    budgetDelta: (base.budgetDelta || 0) + (extra.budgetDelta || 0),
+    engineWearDelta: (base.engineWearDelta || 0) + (extra.engineWearDelta || 0),
+    confidenceDelta: (base.confidenceDelta || 0) + (extra.confidenceDelta || 0),
+  }), []);
+
+  const raceWeekendKey = useMemo(() => `${season}-${currentRaceIndex}`, [season, currentRaceIndex]);
+
+  const clearHeadquartersState = useCallback(() => {
+    setActiveHqModifiers(null);
+    setPendingHqImpact(null);
+    setHqEvent(null);
+    setHqEventRaceKey(null);
+    setWeekendModifiers([]);
+  }, []);
+
+  useEffect(() => {
+    setPendingHqImpact(prev => (prev && prev.raceKey && prev.raceKey !== raceWeekendKey ? null : prev));
+    setActiveHqModifiers(prev => (prev && prev.raceKey && prev.raceKey !== raceWeekendKey ? null : prev));
+    setWeekendModifiers(prev => prev.filter(mod => !mod.raceKey || mod.raceKey === raceWeekendKey));
+    setHqEvent(prev => (prev && hqEventRaceKey && hqEventRaceKey !== raceWeekendKey ? null : prev));
+    setHqEventRaceKey(prev => (prev && prev !== raceWeekendKey ? null : prev));
+  }, [hqEventRaceKey, raceWeekendKey]);
+
+  const weekendModifierMap = useMemo(() => {
+    const byTeam = new Map<string, WeekendModifier[]>();
+
+    if (activeHqModifiers && (!activeHqModifiers.raceKey || activeHqModifiers.raceKey === raceWeekendKey)) {
+      byTeam.set(activeHqModifiers.teamName, [activeHqModifiers]);
+    }
+
+    weekendModifiers
+      .filter(mod => !mod.raceKey || mod.raceKey === raceWeekendKey)
+      .forEach(mod => {
+        const existing = byTeam.get(mod.teamName) || [];
+        existing.push(mod);
+        byTeam.set(mod.teamName, existing);
+      });
+
+    const combined = new Map<string, WeekendModifier>();
+
+    byTeam.forEach((mods, teamName) => {
+      const aggregatedEffect = mods.reduce(
+        (acc, mod) => mergeHqEffects(acc, mod),
+        {} as HeadquartersEventEffect,
+      );
+
+      combined.set(teamName, {
+        ...aggregatedEffect,
+        id: `weekend-${mods.map(m => m.id).join('-')}`,
+        title: mods.map(m => m.title).filter(Boolean).join(' & ') || mods[0].title,
+        summary: mods.map(m => m.summary).filter(Boolean).join(' | ') || mods[0].summary,
+        teamName,
+        raceKey: raceWeekendKey,
+      } as WeekendModifier);
+    });
+
+    return combined;
+  }, [activeHqModifiers, mergeHqEffects, weekendModifiers, raceWeekendKey]);
+
+  const combineWeekendModifiers = useCallback((teamName: string, modifierOverride?: WeekendModifier[]) => {
+    if (modifierOverride) {
+      if (!modifierOverride.length) return null;
+
+      const aggregatedEffect = modifierOverride.reduce(
+        (acc, mod) => mergeHqEffects(acc, mod),
+        {} as HeadquartersEventEffect,
+      );
+
+      return {
+        ...aggregatedEffect,
+        id: `weekend-${modifierOverride.map(m => m.id).join('-')}`,
+        title: modifierOverride.map(m => m.title).filter(Boolean).join(' & ') || modifierOverride[0].title,
+        summary: modifierOverride.map(m => m.summary).filter(Boolean).join(' | ') || modifierOverride[0].summary,
+        teamName,
+      } as WeekendModifier;
+    }
+
+    return weekendModifierMap.get(teamName) || null;
+  }, [mergeHqEffects, weekendModifierMap]);
+
+  const applyWeekendModifiersToDriver = useCallback((driver: InitialDriver, modifierOverride?: WeekendModifier[]): InitialDriver => {
+    const modifier = combineWeekendModifiers(driver.car.teamName, modifierOverride);
+    if (!modifier) return driver;
+
+    const tyreLifeMultiplier = modifier.tyreLifeMultiplier ?? 1;
+    const adjustedCar: Car = {
+      ...driver.car,
+      overallPace: clamp(driver.car.overallPace + (modifier.paceDelta || 0), 60, 110),
+      reliability: clamp(driver.car.reliability + (modifier.reliabilityDelta || 0) - (modifier.engineWearDelta || 0), 1, 100),
+      tyreWearFactor: clamp(driver.car.tyreWearFactor * tyreLifeMultiplier + (modifier.tyreWearDelta || 0), 50, 120),
+    };
+
+    const adjustedSkills = {
+      ...driver.driverSkills,
+      qualifyingPace: clamp(driver.driverSkills.qualifyingPace + (modifier.qualifyingSkillDelta || 0), 1, 100),
+      raceCraft: clamp(driver.driverSkills.raceCraft + ((modifier.qualifyingSkillDelta || 0) / 2), 1, 100),
+      tyreManagement: clamp(driver.driverSkills.tyreManagement * tyreLifeMultiplier + (modifier.tyreWearDelta || 0), 1, 100),
+      consistency: clamp(driver.driverSkills.consistency + (modifier.confidenceDelta || 0), 1, 100),
+      incidentProneness: clamp(driver.driverSkills.incidentProneness + ((modifier.dnfRiskDelta || 0) / 2), 1, 100),
+    };
+
+    return {
+      ...driver,
+      car: adjustedCar,
+      driverSkills: adjustedSkills,
+      morale: clamp(driver.morale + (modifier.moraleDelta || 0), 0, 100),
+      happiness: clamp(driver.happiness + (modifier.confidenceDelta || 0), 0, 100),
+      hqModifiers: modifier,
+    };
+  }, [combineWeekendModifiers]);
+
+  const activeRoster = useMemo(() => roster.filter(d => d.status === 'Active').map(d => applyWeekendModifiersToDriver(d)), [roster, applyWeekendModifiersToDriver]);
 
   const { standings, awardPoints, resetStandings } = useStandings(activeRoster);
   const { standings: constructorStandings, awardConstructorPoints, resetConstructorStandings } = useConstructorStandings(activeRoster);
@@ -1015,7 +1270,56 @@ const App: React.FC = () => {
     setLog(prev => [`${prefix} ${message}`, ...prev.slice(0, 49)]);
   }, [raceState.lap, raceState.totalLaps, gamePhase]);
 
+  useEffect(() => {
+    if (!playerTeam) return;
+    if (hqEventRaceKey === raceWeekendKey) return;
+
+    setHqEventRaceKey(raceWeekendKey);
+    setHqEvent(Math.random() < 0.25 ? pickRandomHeadquartersEvent() : null);
+  }, [playerTeam, raceWeekendKey, hqEventRaceKey]);
+
+  const handleResolveHeadquartersEvent = useCallback((eventId: string, choiceId: string) => {
+    if (!hqEvent || hqEvent.id !== eventId || !playerTeam) return;
+    const selectedChoice = hqEvent.choices.find(c => c.id === choiceId);
+    if (!selectedChoice) return;
+
+    let combinedEffect = { ...selectedChoice.effect } as HeadquartersEventEffect;
+    let riskTriggered = false;
+    if (selectedChoice.risk && Math.random() < selectedChoice.risk.probability) {
+      combinedEffect = mergeHqEffects(combinedEffect, selectedChoice.risk.effect);
+      riskTriggered = true;
+    }
+
+    const resolution: HeadquartersEventResolution = {
+      ...combinedEffect,
+      id: hqEvent.id,
+      title: hqEvent.title,
+      summary: selectedChoice.summary,
+      teamName: playerTeam,
+      raceKey: raceWeekendKey,
+      choiceId: selectedChoice.id,
+      riskTriggered,
+    };
+
+    if (combinedEffect.budgetDelta) {
+      setTeamFinances(prev => prev.map(tf => tf.teamName === playerTeam ? {
+        ...tf,
+        finalBudget: tf.finalBudget + combinedEffect.budgetDelta!,
+        carDevelopmentBudget: tf.carDevelopmentBudget + combinedEffect.budgetDelta!,
+      } : tf));
+    }
+
+    setPendingHqImpact(resolution);
+    setHqEvent(null);
+    const riskNote = riskTriggered && selectedChoice.risk?.summary ? ` (${selectedChoice.risk.summary})` : '';
+    addLog(`[HQ] ${hqEvent.title}: ${selectedChoice.label} chosen. ${selectedChoice.summary}${riskNote}. Impact queued for the next race.`);
+  }, [hqEvent, mergeHqEffects, playerTeam, addLog, raceWeekendKey]);
+
   const handleSetPlayerTeam = (teamName: string) => {
+    // Clear any team-specific weekend or HQ state before switching control so
+    // the new club does not inherit pending effects from the previous team.
+    clearHeadquartersState();
+
     setPlayerTeam(teamName);
     addLog(`You have taken control of ${teamName}. Good luck!`);
     addLog(`The initial ${season} season will be simulated based on default settings. Your management decisions will begin in the off-season.`);
@@ -1037,6 +1341,36 @@ const App: React.FC = () => {
 
   const handleStartPracticeWeekend = (track: Track) => {
     addLog(`Practice session is starting at ${track.name}.`);
+
+    const teams = Array.from(new Set(roster.filter(d => d.status === 'Active').map(d => d.car.teamName)));
+    const weekendRolls: WeekendModifier[] = [];
+    teams.forEach(teamName => {
+      if (Math.random() < 0.01) {
+        const teamDrivers = roster.filter(d => d.car.teamName === teamName && d.status === 'Active');
+        const teamPersonnel = personnel.find(p => p.teamName === teamName);
+        const outcome = rollPreRaceEventForTeam(teamName, teamDrivers, teamPersonnel);
+        weekendRolls.push({ ...outcome.modifier, raceKey: raceWeekendKey });
+        if (outcome.budgetDelta) {
+          setTeamFinances(prev => prev.map(tf => tf.teamName === teamName ? {
+            ...tf,
+            finalBudget: tf.finalBudget + outcome.budgetDelta!,
+            carDevelopmentBudget: tf.carDevelopmentBudget + outcome.budgetDelta!,
+          } : tf));
+        }
+        addLog(`[Wildcard] ${outcome.log}`);
+      }
+    });
+    setWeekendModifiers(weekendRolls);
+
+    if (pendingHqImpact && playerTeam && pendingHqImpact.teamName === playerTeam) {
+      if (!pendingHqImpact.raceKey || pendingHqImpact.raceKey === raceWeekendKey) {
+        setActiveHqModifiers(pendingHqImpact);
+        setPendingHqImpact(null);
+        addLog(`[HQ] ${pendingHqImpact.title} effect active for this weekend.`);
+      } else {
+        setPendingHqImpact(null);
+      }
+    }
 
     setRoster(prev => prev.map(d => ({ ...d, form: Math.round(d.form * 0.9) })));
     
@@ -1066,7 +1400,8 @@ const App: React.FC = () => {
     }
     
     const practiceWeatherForSim = Math.random() < track.wetSessionProbability ? 'Light Rain' : 'Sunny';
-    const practiceSessionResults = runPracticeSession(activeRoster, track, personnel, practiceWeatherForSim);
+    const practiceRoster = roster.filter(d => d.status === 'Active').map(d => applyWeekendModifiersToDriver(d, weekendRolls));
+    const practiceSessionResults = runPracticeSession(practiceRoster, track, personnel, practiceWeatherForSim);
     setPracticeResults(practiceSessionResults);
 
     setRaceState(prev => ({ 
@@ -1257,6 +1592,8 @@ const App: React.FC = () => {
         return;
     }
 
+    clearHeadquartersState();
+
     const driverForPreview =
         standings.find(s => s.position === 1) ? roster.find(r => r.id === standings.find(s => s.position === 1)!.driverId) :
         drivers.find(d => d.position === 1) ? roster.find(r => r.id === drivers.find(d => d.position === 1)!.id) :
@@ -1291,6 +1628,7 @@ const App: React.FC = () => {
   };
   
   const handleProceedToOffSeason = () => {
+    clearHeadquartersState();
     addLog(`The ${season} season has concluded. Generating season review...`);
     setIsGeneratingSeasonReview(true);
 
@@ -1353,6 +1691,7 @@ const App: React.FC = () => {
   };
 
   const handleSkipToOffSeason = () => {
+    clearHeadquartersState();
     addLog(`The ${season} season has been manually concluded. Proceeding to review.`);
     setIsGeneratingSeasonReview(true);
     
@@ -1572,34 +1911,30 @@ const App: React.FC = () => {
      setOffSeasonPhase('CAR_DEVELOPMENT');
   };
 
-  const handleStartNewSeason = () => {
-    let updatedRosterWithHistory = roster.map(driver => {
-        const newHistory = { ...driver.careerHistory };
-        newHistory[season + 1] = driver.status === 'Active' ? driver.car.teamName : 'Free Agent';
-        // Reset salary based on new reputation and DSV
-        const driverDebrief = driverDebriefs.find(d => d.driverId === driver.id);
-        let newSalary = driver.salary;
-        if (driver.contractExpiresIn <= 0 && driverDebrief) {
-            newSalary = Math.round(500000 + (driver.driverSkills.reputation * 50000) + (driverDebrief.dsv * 100000));
-        }
+  const handleStartNewSeason = useCallback(() => {
+    // Ensure no stray timers from the previous season keep mutating state while we reset.
+    if (raceIntervalRef.current) {
+      clearInterval(raceIntervalRef.current);
+      raceIntervalRef.current = null;
+    }
+    if (highlightTimeoutRef.current) {
+      clearTimeout(highlightTimeoutRef.current);
+      highlightTimeoutRef.current = null;
+    }
 
-        const updatedDriver = { ...driver, careerHistory: newHistory, seasonRaceRatings: [], salary: newSalary };
-        
-        const teamKey = Object.keys(carRatings).find((key: string) => carRatings[key as keyof typeof carRatings].teamName === updatedDriver.car.teamName);
-        if (teamKey) {
-            return { ...updatedDriver, car: carRatings[teamKey] };
-        }
-        return updatedDriver;
-    });
-    
+    // Clear any leftover weekend or HQ effects so they don't leak into the fresh season.
+    clearHeadquartersState();
+
+    const updatedRosterWithHistory = updateRosterForNewSeason(roster, driverDebriefs, carRatings, season);
+
     const retiredThisSeasonCount = driverMarketLog.filter(e => e.type === 'RETIRED').length;
-    const numToGenerate = Math.max(2, retiredThisSeasonCount + Math.floor(Math.random() * 2));
-    const newRookies = generateNewRookies(numToGenerate, rookiePool, roster);
+    const newRookies = createNewRookies(retiredThisSeasonCount, rookiePool, updatedRosterWithHistory);
     addLog(`${newRookies.length} new prospects have been added to the rookie pool.`);
     setRookiePool(prevPool => [...prevPool, ...newRookies]);
-    
+
     const nextSeason = season + 1;
-    const nextSeasonTracks = seasonLength === 'short' ? SHORT_SEASON_TRACKS : FULL_SEASON_TRACKS;
+    const nextSeasonTracks = calculateNextSeasonTracks(seasonLength);
+    const initialRaceState = buildInitialRaceState(nextSeasonTracks);
 
     setRoster(updatedRosterWithHistory);
     const activeRosterForNewSeason = updatedRosterWithHistory.filter(d => d.status === 'Active');
@@ -1612,28 +1947,47 @@ const App: React.FC = () => {
     resetConstructorStandings(activeRosterForNewSeason);
 
     setSeasonTracks(nextSeasonTracks);
+    setRaceState(initialRaceState);
     setDrivers([]);
     setPracticeResults([]);
     setQualifyingResults([]);
-    setQualifyingStage('Q1'); 
-    setQ2Drivers([]); 
-    setQ3Drivers([]); 
+    setQualifyingStage('Q1');
+    setQ2Drivers([]);
+    setQ3Drivers([]);
+    setRaceLapEvents([]);
     setFastestLap(null);
+    setAiSummary(null);
+    setIsGeneratingSummary(false);
+    setUpcomingRaceQuote(null);
     setAiSeasonReview(null);
-    setTeamFinances([]); 
-    setTeamDebriefs([]); 
+    setIsGeneratingSeasonReview(false);
+    setTeamFinances([]);
+    setTeamDebriefs([]);
     setDriverDebriefs([]);
     setPlayerShortlist([]);
     setDriverProgressionLog([]);
     setResourceAllocationLog([]);
     setMvi(0);
-    setStaffingLog([]); 
+    setStaffingLog([]);
     setDriverMarketLog([]);
+    setAffiliateLog([]);
     setRegulationChangeLog([]);
-    setDevResults([]); 
+    setDevResults([]);
     setOffSeasonPhase('DEBRIEF');
     setLog([`Welcome to the ${nextSeason} season! Please select a track to begin.`]);
-  };
+  }, [
+    addLog,
+    carRatings,
+    clearHeadquartersState,
+    driverDebriefs,
+    driverMarketLog,
+    resetConstructorStandings,
+    resetStandings,
+    rookiePool,
+    roster,
+    season,
+    seasonLength,
+  ]);
   
   const handleResetAllStandings = useCallback(() => {
     resetStandings(INITIAL_DRIVERS.filter(d => d.status === 'Active'));
@@ -1642,6 +1996,7 @@ const App: React.FC = () => {
     setPersonnel(INITIAL_PERSONNEL);
     setCarRatings(CARS);
     setRookiePool(ROOKIE_POOL);
+    clearHeadquartersState();
     clearHistory();
     clearRaceHistory();
     setSeason(2025);
@@ -1650,7 +2005,13 @@ const App: React.FC = () => {
     setSeasonTracks(FULL_SEASON_TRACKS);
     setPlayerTeam(null);
     addLog('All championship, roster, personnel, and season history has been reset.');
-  }, [resetStandings, resetConstructorStandings, clearHistory, addLog]);
+  }, [
+    resetStandings,
+    resetConstructorStandings,
+    clearHistory,
+    addLog,
+    clearHeadquartersState,
+  ]);
 
   const handleCommentaryUpdate = useCallback((events: LapEvent[]) => {
     if (highlightTimeoutRef.current) {
@@ -2013,7 +2374,7 @@ const App: React.FC = () => {
       case GamePhase.TEAM_SELECTION:
         return <TeamSelectionScreen teams={teamsDataForSelection} onSelectTeam={handleSetPlayerTeam} onShowHowToPlay={() => setShowHowToPlay(true)} />;
       case GamePhase.SETUP:
-        return <SetupScreen season={season} onStartPracticeWeekend={handleStartPracticeWeekend} seasonTracks={seasonTracks} currentRaceIndex={currentRaceIndex} onSetSeasonLength={handleSetSeasonLength} seasonLength={seasonLength} standings={standings} constructorStandings={constructorStandings} onResetStandings={handleResetAllStandings} onSelectTeam={handleSelectTeam} onShowHistory={() => setShowHistoryScreen(true)} onShowGarage={() => setShowGarageScreen(true)} onShowHq={() => setShowHqScreen(true)} onSkipToOffSeason={handleSkipToOffSeason} upcomingRaceQuote={upcomingRaceQuote} raceHistory={raceHistory} roster={roster} playerTeam={playerTeam} onSetPlayerTeam={handleSetPlayerTeam} onShowHowToPlay={() => setShowHowToPlay(true)} />;
+        return <SetupScreen season={season} onStartPracticeWeekend={handleStartPracticeWeekend} seasonTracks={seasonTracks} currentRaceIndex={currentRaceIndex} onSetSeasonLength={handleSetSeasonLength} seasonLength={seasonLength} standings={standings} constructorStandings={constructorStandings} onResetStandings={handleResetAllStandings} onSelectTeam={handleSelectTeam} onShowHistory={() => setShowHistoryScreen(true)} onShowGarage={() => setShowGarageScreen(true)} onShowHq={() => setShowHqScreen(true)} onSkipToOffSeason={handleSkipToOffSeason} upcomingRaceQuote={upcomingRaceQuote} raceHistory={raceHistory} roster={roster} playerTeam={playerTeam} onSetPlayerTeam={handleSetPlayerTeam} onShowHowToPlay={() => setShowHowToPlay(true)} hqEventAvailable={!!hqEvent} hqImpact={pendingHqImpact || activeHqModifiers} preRaceModifiers={playerTeam ? weekendModifiers.filter(mod => mod.teamName === playerTeam) : []} />;
       case GamePhase.PRACTICE:
         return <PracticeScreen results={practiceResults} roster={activeRoster} onProceed={handleProceedToQualifying} />;
       case GamePhase.QUALIFYING:
@@ -2096,6 +2457,10 @@ const App: React.FC = () => {
           drivers={roster.filter(d => d.car.teamName === playerTeam && d.status === 'Active')}
           affiliate={personnel.find(p => p.teamName === playerTeam)!.affiliateDriver}
           onContractOffer={handleContractOffer}
+          event={hqEvent}
+          pendingImpact={pendingHqImpact}
+          activeImpact={activeHqModifiers}
+          onResolveEvent={handleResolveHeadquartersEvent}
         />
        )}
     </div>

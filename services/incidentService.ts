@@ -137,7 +137,8 @@ export const simulateLapIncidents = (
         }
 
         // --- Mechanical Failures ---
-        if (Math.random() < (100 - driver.car.reliability) * RELIABILITY_FAILURE_FACTOR) {
+        const dnfRiskMultiplier = driver.hqModifiers?.dnfRiskDelta ? 1 + (driver.hqModifiers.dnfRiskDelta / 100) : 1;
+        if (Math.random() < (100 - driver.car.reliability) * RELIABILITY_FAILURE_FACTOR * dnfRiskMultiplier) {
             const failureSeverity = Math.random();
             if (failureSeverity < 0.6) { // Catastrophic failure
                 driver.raceStatus = 'DNF';
@@ -160,6 +161,7 @@ export const simulateLapIncidents = (
         let incidentChance = (driver.driverSkills.incidentProneness / 100) * BASE_INCIDENT_PROBABILITY_FACTOR;
         if (driver.driverSkills.trait?.id === 'MR_CONSISTENT') incidentChance *= 0.5; // 50% less likely to have incident
         if (driver.driverSkills.trait?.id === 'ERROR_PRONE') incidentChance *= 1.5; // 50% more likely
+        if (driver.hqModifiers?.dnfRiskDelta) incidentChance *= 1 + (driver.hqModifiers.dnfRiskDelta / 150);
 
         if (driver.currentTyres.wear > 65) {
             incidentChance *= (1 + Math.pow((driver.currentTyres.wear - 65) / 10, 2));

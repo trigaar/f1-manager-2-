@@ -4,7 +4,7 @@
 
 
 
-import { InitialDriver, DriverMarketEvent, RookieDriver, TeamFinances, TeamPersonnel, TeamPrincipalPersonality, RookiePotential, DriverTrait, DriverTraitRarity, ShortlistDriver, TeamDebrief, DriverDebrief } from '../types';
+import { CarLink, InitialDriver, DriverMarketEvent, RookieDriver, TeamFinances, TeamPersonnel, TeamPrincipalPersonality, RookiePotential, DriverTrait, DriverTraitRarity, ShortlistDriver, TeamDebrief, DriverDebrief } from '../types';
 import { CARS, DRIVER_TRAITS, TEAM_EXPECTATIONS, TEAM_COLORS } from '../constants';
 import { generateNewRookies } from './rookieService';
 
@@ -77,8 +77,69 @@ export const generateRookieDriver = (rookie: RookieDriver, teamName: string, id:
         }
     };
 
-    const commonTraits = (Object.values(DRIVER_TRAITS) as DriverTrait[]).filter(t => t.rarity === DriverTraitRarity.Common);
-    const randomTrait = commonTraits[Math.floor(Math.random() * commonTraits.length)];
+    const traitPoolByRarity = {
+        common: (Object.values(DRIVER_TRAITS) as DriverTrait[]).filter(t => t.rarity === DriverTraitRarity.Common),
+        rare: (Object.values(DRIVER_TRAITS) as DriverTrait[]).filter(t => t.rarity === DriverTraitRarity.Rare),
+    };
+
+    const deriveSpecialtiesFromTrait = (trait: DriverTrait | undefined, seedSpecialties?: string[]): string[] => {
+        const specialties = seedSpecialties ? [...seedSpecialties] : [];
+        if (!trait) return specialties.length ? specialties.slice(0, 2) : ['Track Learner'];
+
+        switch (trait.id) {
+            case DRIVER_TRAITS.TYRE_WHISPERER.id:
+                specialties.push('Tyre Life', 'Heat Control');
+                break;
+            case DRIVER_TRAITS.MR_SATURDAY.id:
+                specialties.push('One Lap Pace');
+                break;
+            case DRIVER_TRAITS.THE_OVERTAKER.id:
+                specialties.push('Racecraft Bully', 'Brake Confidence');
+                break;
+            case DRIVER_TRAITS.THE_WALL.id:
+                specialties.push('Defensive Lines');
+                break;
+            case DRIVER_TRAITS.RAIN_MASTER.id:
+                specialties.push('Wet Weather');
+                break;
+            case DRIVER_TRAITS.ROCKET_START.id:
+                specialties.push('Launch Specialist');
+                break;
+            case DRIVER_TRAITS.DRS_ASSASSIN.id:
+                specialties.push('DRS Timing');
+                break;
+            case DRIVER_TRAITS.NIGHT_OPS.id:
+                specialties.push('Night Rhythm');
+                break;
+            case DRIVER_TRAITS.STRATEGY_SAVANT.id:
+                specialties.push('Stint Stretching');
+                break;
+            default:
+                specialties.push('Clutch Moments');
+                break;
+        }
+
+        const unique = Array.from(new Set(specialties));
+        const max = trait.rarity === DriverTraitRarity.Legendary ? 3 : 2;
+        return unique.slice(0, max || 2);
+    };
+
+    const pickTraitForRookie = (potential: RookiePotential): DriverTrait => {
+        const rareBias = potential === 'A' ? 0.45 : potential === 'B' ? 0.25 : 0.1;
+        const pool = Math.random() < rareBias && traitPoolByRarity.rare.length > 0
+            ? traitPoolByRarity.rare
+            : traitPoolByRarity.common;
+        return pool[Math.floor(Math.random() * pool.length)] || traitPoolByRarity.common[0];
+    };
+
+    const randomTrait = pickTraitForRookie(rookie.potential);
+    const derivedSpecialties = deriveSpecialtiesFromTrait(randomTrait, rookie.specialties);
+
+    const carLink: CarLink = {
+        compatibility: 60 + Math.floor(Math.random() * 25) + (randomTrait.id === DRIVER_TRAITS.RAIN_MASTER.id ? 5 : 0),
+        adaptation: 55 + Math.floor(Math.random() * 30) + (rookie.potential === 'A' ? 10 : 0),
+        notes: 'Rookie adapting to senior car concepts',
+    };
 
     return {
         id, name: rookie.name, shortName: rookie.name.substring(0, 3).toUpperCase(), number: 50 + id,
@@ -89,8 +150,10 @@ export const generateRookieDriver = (rookie: RookieDriver, teamName: string, id:
             loyalty: 70 + Math.floor(Math.random() * 15), // Rookies start fairly loyal
             potential: rookiePotentialToNumber(rookie.potential),
             reputation: 60 + Math.floor(Math.random() * 10),
+            specialties: derivedSpecialties,
             trait: randomTrait,
         },
+        carLink,
         car, rookie: true, age: 18 + Math.floor(Math.random() * 7),
         contractExpiresIn: 1 + Math.floor(Math.random() * 2),
         careerWins: 0, careerPodiums: 0, championships: 0, status: 'Active', peakDsv: 0, salary: 750000 + Math.floor(Math.random() * 250000),

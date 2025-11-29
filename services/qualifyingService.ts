@@ -1,5 +1,6 @@
 
 import { InitialDriver, Track, Car, QualifyingResult, RaceState, RaceHistory, PracticeResult } from '../types';
+import { calculateCarLinkImpact } from './carLinkService';
 
 const SCALING_FACTOR = 0.050; // 0.050 seconds per FPS point difference from 100
 
@@ -32,15 +33,20 @@ const calculateDriverLap = (driver: InitialDriver, track: Track, weather: RaceSt
     if (driver.driverSkills.trait?.id === 'MR_SATURDAY') qPace = Math.min(100, qPace + 5);
     const bps = (driver.car.overallPace * 0.5) + (qPace * 0.5);
     const tsm = calculateTSM(driver.car, track);
-    const taps = bps + tsm; // Total Adjusted Pace Score
+    const carLinkImpact = calculateCarLinkImpact(driver, { session: 'qualifying', lapNumber: 2 });
+
+    const taps = bps + tsm + carLinkImpact.readiness * 4; // Total Adjusted Pace Score
 
     let baseLapTime = track.baseLapTime;
-    
+
     // Track Specialist Bonus
     const trackWinners = raceHistory[track.name] || [];
     if (trackWinners.some(w => w.winnerId === driver.id)) {
         baseLapTime -= 0.15;
     }
+
+    baseLapTime -= carLinkImpact.synergyBonus;
+    baseLapTime += carLinkImpact.adaptationDrag * 0.8;
 
     const isWet = weather === 'Light Rain' || weather === 'Heavy Rain';
 
