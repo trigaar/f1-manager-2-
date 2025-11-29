@@ -159,6 +159,409 @@ export const getCurrentGameState = (state: GameSaveState): GameSaveState => ({
   version: state.version ?? 1,
 });
 
+// Lightweight LZ-based compression adapted from the MIT-licensed lz-string project
+// Source: https://github.com/pieroxy/lz-string
+const keyStrUriSafe = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-$';
+
+const getBaseValue = (alphabet: string, character: string) => {
+  const index = alphabet.indexOf(character);
+  if (index === -1) throw new Error('Invalid character in compressed string');
+  return index;
+};
+
+const compressToEncodedURIComponent = (input: string): string => {
+  if (input == null) return '';
+  return _compress(input, 6, (a: number) => keyStrUriSafe.charAt(a));
+};
+
+const decompressFromEncodedURIComponent = (input: string): string | null => {
+  if (input == null) return '';
+  try {
+    input = input.replace(/ /g, '+');
+    return _decompress(input.length, 32, index => getBaseValue(keyStrUriSafe, input.charAt(index)));
+  } catch (error) {
+    console.error('Failed to decompress save code', error);
+    return null;
+  }
+};
+
+const _compress = (uncompressed: string, bitsPerChar: number, getCharFromInt: (value: number) => string): string => {
+  if (uncompressed == null) return '';
+
+  let i: number;
+  let value: number;
+  const contextDictionary: Record<string, number> = {};
+  const contextDictionaryToCreate: Record<string, boolean> = {};
+  let contextC = '';
+  let contextW = '';
+  const contextData: number[] = [];
+  let contextEnlargeIn = 2;
+  let contextDictSize = 3;
+  let contextNumBits = 2;
+  let contextDataVal = 0;
+  let contextDataPosition = 0;
+
+  for (let ii = 0; ii < uncompressed.length; ii += 1) {
+    contextC = uncompressed.charAt(ii);
+
+    if (!Object.prototype.hasOwnProperty.call(contextDictionary, contextC)) {
+      contextDictionary[contextC] = contextDictSize++;
+      contextDictionaryToCreate[contextC] = true;
+    }
+
+    const contextWC = contextW + contextC;
+    if (Object.prototype.hasOwnProperty.call(contextDictionary, contextWC)) {
+      contextW = contextWC;
+    } else {
+      if (Object.prototype.hasOwnProperty.call(contextDictionaryToCreate, contextW)) {
+        if (contextW.charCodeAt(0) < 256) {
+          for (i = 0; i < contextNumBits; i++) {
+            contextDataVal = (contextDataVal << 1);
+            if (contextDataPosition == bitsPerChar - 1) {
+              contextDataPosition = 0;
+              contextData.push(getCharFromInt(contextDataVal));
+              contextDataVal = 0;
+            } else {
+              contextDataPosition++;
+            }
+          }
+          value = contextW.charCodeAt(0);
+          for (i = 0; i < 8; i++) {
+            contextDataVal = (contextDataVal << 1) | (value & 1);
+            if (contextDataPosition == bitsPerChar - 1) {
+              contextDataPosition = 0;
+              contextData.push(getCharFromInt(contextDataVal));
+              contextDataVal = 0;
+            } else {
+              contextDataPosition++;
+            }
+            value >>= 1;
+          }
+        } else {
+          value = 1;
+          for (i = 0; i < contextNumBits; i++) {
+            contextDataVal = (contextDataVal << 1) | value;
+            if (contextDataPosition == bitsPerChar - 1) {
+              contextDataPosition = 0;
+              contextData.push(getCharFromInt(contextDataVal));
+              contextDataVal = 0;
+            } else {
+              contextDataPosition++;
+            }
+            value = 0;
+          }
+          value = contextW.charCodeAt(0);
+          for (i = 0; i < 16; i++) {
+            contextDataVal = (contextDataVal << 1) | (value & 1);
+            if (contextDataPosition == bitsPerChar - 1) {
+              contextDataPosition = 0;
+              contextData.push(getCharFromInt(contextDataVal));
+              contextDataVal = 0;
+            } else {
+              contextDataPosition++;
+            }
+            value >>= 1;
+          }
+        }
+        contextEnlargeIn--;
+        if (contextEnlargeIn == 0) {
+          contextEnlargeIn = 1 << contextNumBits;
+          contextNumBits++;
+        }
+        delete contextDictionaryToCreate[contextW];
+      } else {
+        value = contextDictionary[contextW];
+        for (i = 0; i < contextNumBits; i++) {
+          contextDataVal = (contextDataVal << 1) | (value & 1);
+          if (contextDataPosition == bitsPerChar - 1) {
+            contextDataPosition = 0;
+            contextData.push(getCharFromInt(contextDataVal));
+            contextDataVal = 0;
+          } else {
+            contextDataPosition++;
+          }
+          value >>= 1;
+        }
+
+      }
+      contextEnlargeIn--;
+      if (contextEnlargeIn == 0) {
+        contextEnlargeIn = 1 << contextNumBits;
+        contextNumBits++;
+      }
+      contextDictionary[contextWC] = contextDictSize++;
+      contextW = String(contextC);
+    }
+  }
+
+  if (contextW !== '') {
+    if (Object.prototype.hasOwnProperty.call(contextDictionaryToCreate, contextW)) {
+      if (contextW.charCodeAt(0) < 256) {
+        for (i = 0; i < contextNumBits; i++) {
+          contextDataVal = (contextDataVal << 1);
+          if (contextDataPosition == bitsPerChar - 1) {
+            contextDataPosition = 0;
+            contextData.push(getCharFromInt(contextDataVal));
+            contextDataVal = 0;
+          } else {
+            contextDataPosition++;
+          }
+        }
+        value = contextW.charCodeAt(0);
+        for (i = 0; i < 8; i++) {
+          contextDataVal = (contextDataVal << 1) | (value & 1);
+          if (contextDataPosition == bitsPerChar - 1) {
+            contextDataPosition = 0;
+            contextData.push(getCharFromInt(contextDataVal));
+            contextDataVal = 0;
+          } else {
+            contextDataPosition++;
+          }
+          value >>= 1;
+        }
+      } else {
+        value = 1;
+        for (i = 0; i < contextNumBits; i++) {
+          contextDataVal = (contextDataVal << 1) | value;
+          if (contextDataPosition == bitsPerChar - 1) {
+            contextDataPosition = 0;
+            contextData.push(getCharFromInt(contextDataVal));
+            contextDataVal = 0;
+          } else {
+            contextDataPosition++;
+          }
+          value = 0;
+        }
+        value = contextW.charCodeAt(0);
+        for (i = 0; i < 16; i++) {
+          contextDataVal = (contextDataVal << 1) | (value & 1);
+          if (contextDataPosition == bitsPerChar - 1) {
+            contextDataPosition = 0;
+            contextData.push(getCharFromInt(contextDataVal));
+            contextDataVal = 0;
+          } else {
+            contextDataPosition++;
+          }
+          value >>= 1;
+        }
+      }
+      contextEnlargeIn--;
+      if (contextEnlargeIn == 0) {
+        contextEnlargeIn = 1 << contextNumBits;
+        contextNumBits++;
+      }
+      delete contextDictionaryToCreate[contextW];
+    } else {
+      value = contextDictionary[contextW];
+      for (i = 0; i < contextNumBits; i++) {
+        contextDataVal = (contextDataVal << 1) | (value & 1);
+        if (contextDataPosition == bitsPerChar - 1) {
+          contextDataPosition = 0;
+          contextData.push(getCharFromInt(contextDataVal));
+          contextDataVal = 0;
+        } else {
+          contextDataPosition++;
+        }
+        value >>= 1;
+      }
+    }
+    contextEnlargeIn--;
+    if (contextEnlargeIn == 0) {
+      contextEnlargeIn = 1 << contextNumBits;
+      contextNumBits++;
+    }
+  }
+
+  value = 2;
+  for (i = 0; i < contextNumBits; i++) {
+    contextDataVal = (contextDataVal << 1) | (value & 1);
+    if (contextDataPosition == bitsPerChar - 1) {
+      contextDataPosition = 0;
+      contextData.push(getCharFromInt(contextDataVal));
+      contextDataVal = 0;
+    } else {
+      contextDataPosition++;
+    }
+    value >>= 1;
+  }
+
+  while (true) {
+    contextDataVal = (contextDataVal << 1);
+    if (contextDataPosition == bitsPerChar - 1) {
+      contextData.push(getCharFromInt(contextDataVal));
+      break;
+    }
+    contextDataPosition++;
+  }
+
+  return contextData.join('');
+};
+
+const _decompress = (length: number, resetValue: number, getNextValue: (index: number) => number): string | null => {
+  const dictionary: string[] = [];
+  let next;
+  let enlargeIn = 4;
+  let dictSize = 4;
+  let numBits = 3;
+  let entry = '';
+  const result: string[] = [];
+  let i: number;
+  let w: string;
+  let bits: number;
+  let resb: number;
+  let maxpower: number;
+  let power: number;
+
+  const data = { val: getNextValue(0), position: resetValue, index: 1 };
+
+  for (i = 0; i < 3; i += 1) {
+    dictionary[i] = i.toString();
+  }
+
+  bits = 0;
+  maxpower = 2 ** 2;
+  power = 1;
+  while (power !== maxpower) {
+    resb = data.val & data.position;
+    data.position >>= 1;
+    if (data.position === 0) {
+      data.position = resetValue;
+      data.val = getNextValue(data.index++);
+    }
+    bits |= (resb > 0 ? 1 : 0) * power;
+    power <<= 1;
+  }
+
+  switch (next = bits) {
+    case 0:
+      bits = 0;
+      maxpower = 2 ** 8;
+      power = 1;
+      while (power !== maxpower) {
+        resb = data.val & data.position;
+        data.position >>= 1;
+        if (data.position === 0) {
+          data.position = resetValue;
+          data.val = getNextValue(data.index++);
+        }
+        bits |= (resb > 0 ? 1 : 0) * power;
+        power <<= 1;
+      }
+      dictionary[3] = String.fromCharCode(bits);
+      next = 3;
+      break;
+    case 1:
+      bits = 0;
+      maxpower = 2 ** 16;
+      power = 1;
+      while (power !== maxpower) {
+        resb = data.val & data.position;
+        data.position >>= 1;
+        if (data.position === 0) {
+          data.position = resetValue;
+          data.val = getNextValue(data.index++);
+        }
+        bits |= (resb > 0 ? 1 : 0) * power;
+        power <<= 1;
+      }
+      dictionary[3] = String.fromCharCode(bits);
+      next = 3;
+      break;
+    case 2:
+      return '';
+  }
+
+  w = dictionary[next];
+  result.push(w);
+
+  while (true) {
+    if (data.index > length) {
+      return '';
+    }
+
+    bits = 0;
+    maxpower = 2 ** numBits;
+    power = 1;
+    while (power !== maxpower) {
+      resb = data.val & data.position;
+      data.position >>= 1;
+      if (data.position === 0) {
+        data.position = resetValue;
+        data.val = getNextValue(data.index++);
+      }
+      bits |= (resb > 0 ? 1 : 0) * power;
+      power <<= 1;
+    }
+
+    switch (next = bits) {
+      case 0:
+        bits = 0;
+        maxpower = 2 ** 8;
+        power = 1;
+        while (power !== maxpower) {
+          resb = data.val & data.position;
+          data.position >>= 1;
+          if (data.position === 0) {
+            data.position = resetValue;
+            data.val = getNextValue(data.index++);
+          }
+          bits |= (resb > 0 ? 1 : 0) * power;
+          power <<= 1;
+        }
+
+        dictionary[dictSize++] = String.fromCharCode(bits);
+        next = dictSize - 1;
+        enlargeIn--;
+        break;
+      case 1:
+        bits = 0;
+        maxpower = 2 ** 16;
+        power = 1;
+        while (power !== maxpower) {
+          resb = data.val & data.position;
+          data.position >>= 1;
+          if (data.position === 0) {
+            data.position = resetValue;
+            data.val = getNextValue(data.index++);
+          }
+          bits |= (resb > 0 ? 1 : 0) * power;
+          power <<= 1;
+        }
+        dictionary[dictSize++] = String.fromCharCode(bits);
+        next = dictSize - 1;
+        enlargeIn--;
+        break;
+      case 2:
+        return result.join('');
+    }
+
+    if (enlargeIn === 0) {
+      enlargeIn = 2 ** numBits;
+      numBits++;
+    }
+
+    if (dictionary[next]) {
+      entry = dictionary[next];
+    } else {
+      if (next === dictSize) {
+        entry = w + w.charAt(0);
+      } else {
+        return null;
+      }
+    }
+    result.push(entry);
+
+    dictionary[dictSize++] = w + entry.charAt(0);
+    enlargeIn--;
+    w = entry;
+
+    if (enlargeIn === 0) {
+      enlargeIn = 2 ** numBits;
+      numBits++;
+    }
+  }
+};
+
 const decodeBase64 = (value: string) => {
   try {
     return decodeURIComponent(escape(window.atob(value)));
@@ -273,7 +676,8 @@ export const applyLoadedGameState = (state: GameSaveState, setters: SaveStateSet
 export const generateSaveCode = (state: GameSaveState): string => {
   const snapshot = getCurrentGameState(state);
   const json = JSON.stringify(snapshot);
-  return encodeBase64(json);
+  const compressed = compressToEncodedURIComponent(json);
+  return compressed.length < json.length ? compressed : encodeBase64(json);
 };
 
 /**
@@ -285,7 +689,11 @@ export const loadFromSaveCode = (code: string, setters: SaveStateSetters): { suc
   }
 
   try {
-    const decoded = decodeBase64(code.trim());
+    const trimmedCode = code.trim();
+    const decompressed = decompressFromEncodedURIComponent(trimmedCode);
+    const decoded = decompressed && decompressed.length > 0
+      ? decompressed
+      : decodeBase64(trimmedCode);
     const parsed = JSON.parse(decoded) as GameSaveState;
     if (!isValidGameState(parsed)) {
       return { success: false, message: 'Save code missing required fields.' };
