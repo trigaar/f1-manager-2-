@@ -1217,6 +1217,26 @@ const App: React.FC = () => {
   const { history: raceHistory, recordWinner, clearRaceHistory, hydrateRaceHistory } = useRaceHistory();
   const raceIntervalRef = useRef<number | null>(null);
   const highlightTimeoutRef = useRef<number | null>(null);
+  const driversRef = useRef<Driver[]>(drivers);
+  const raceStateRef = useRef<RaceState>(raceState);
+  const personnelRef = useRef<TeamPersonnel[]>(personnel);
+  const fastestLapRef = useRef<{ driverName: string; time: number } | null>(fastestLap);
+
+  useEffect(() => {
+    driversRef.current = drivers;
+  }, [drivers]);
+
+  useEffect(() => {
+    raceStateRef.current = raceState;
+  }, [raceState]);
+
+  useEffect(() => {
+    personnelRef.current = personnel;
+  }, [personnel]);
+
+  useEffect(() => {
+    fastestLapRef.current = fastestLap;
+  }, [fastestLap]);
 
   const buildSaveSnapshot = useCallback((): GameSaveState => ({
     version: 1,
@@ -2285,11 +2305,16 @@ const App: React.FC = () => {
   }, [formatEventMessage]);
 
   const runSimulationLap = useCallback(() => {
+    if (raceStateRef.current.lap > raceStateRef.current.totalLaps) {
+      setGamePhase(GamePhase.FINISHED);
+      return;
+    }
+
     const { nextDrivers, nextRaceState, lapEvents } = calculateNextStates(
-      drivers,
-      raceState,
-      personnel,
-      fastestLap,
+      driversRef.current,
+      raceStateRef.current,
+      personnelRef.current,
+      fastestLapRef.current,
       addLog,
       setFastestLap,
       formatEventMessage,
@@ -2299,7 +2324,7 @@ const App: React.FC = () => {
     setRaceState(nextRaceState);
     setRaceLapEvents(prev => [...prev, ...lapEvents]);
     handleCommentaryUpdate(lapEvents);
-  }, [drivers, raceState, personnel, fastestLap, addLog, formatEventMessage, setFastestLap, raceHistory, handleCommentaryUpdate]);
+  }, [addLog, formatEventMessage, handleCommentaryUpdate, raceHistory, setFastestLap]);
 
   const calculateRaceRatings = (finalDrivers: Driver[]): Driver[] => {
       const teammateMap = new Map<string, number[]>();
@@ -2483,19 +2508,34 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    if (gamePhase === GamePhase.RACING && raceState.lap <= raceState.totalLaps) {
-      const baseLapDuration = Math.max(500, 2000 - (drivers.filter(d => d.battle).length * 200));
-      const lapDuration = baseLapDuration / simSpeed;
-      raceIntervalRef.current = window.setTimeout(runSimulationLap, lapDuration);
-    } else if (raceState.lap > raceState.totalLaps && gamePhase === GamePhase.RACING) {
-      if (raceIntervalRef.current) clearTimeout(raceIntervalRef.current);
-      setGamePhase(GamePhase.FINISHED);
+    if (raceIntervalRef.current) {
+      clearInterval(raceIntervalRef.current);
+      raceIntervalRef.current = null;
     }
-    return () => { 
-        if (raceIntervalRef.current) clearTimeout(raceIntervalRef.current); 
-        if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+
+    if (gamePhase !== GamePhase.RACING) return;
+
+    const scheduleInterval = () => {
+      const baseLapDuration = Math.max(500, 2000 - (driversRef.current.filter(d => d.battle).length * 200));
+      const lapDuration = baseLapDuration / simSpeed;
+
+      raceIntervalRef.current = window.setInterval(() => {
+        if (raceStateRef.current.lap > raceStateRef.current.totalLaps) {
+          if (raceIntervalRef.current) clearInterval(raceIntervalRef.current);
+          setGamePhase(GamePhase.FINISHED);
+          return;
+        }
+        runSimulationLap();
+      }, lapDuration);
     };
-  }, [gamePhase, raceState.lap, raceState.totalLaps, runSimulationLap, simSpeed, drivers]);
+
+    scheduleInterval();
+
+    return () => {
+      if (raceIntervalRef.current) clearInterval(raceIntervalRef.current);
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+    };
+  }, [gamePhase, runSimulationLap, simSpeed]);
 
   useEffect(() => {
     if (gamePhase === GamePhase.FINISHED && drivers.length > 0 && !drivers[0].raceRating) {
