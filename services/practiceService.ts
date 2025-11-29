@@ -1,4 +1,5 @@
 import { InitialDriver, Track, TeamPersonnel, RaceState, PracticeResult, PracticeGrade } from '../types';
+import { calculateCarLinkImpact } from './carLinkService';
 
 const getGradeAndModifier = (score: number): { grade: PracticeGrade; modifier: number } => {
     if (score >= 90) return { grade: 'A', modifier: -0.25 };
@@ -59,6 +60,16 @@ export const runPracticeSession = (
         const setupPotential = (teamPersonnel.headOfTechnical.innovation + teamPersonnel.headOfTechnical.rdConversion) * 1.5; // max 60
         const driverFeedback = (driver.driverSkills.consistency + driver.driverSkills.raceCraft) / 2 * 0.4; // max 40
         score = setupPotential + driverFeedback;
+
+        const carLinkImpact = calculateCarLinkImpact(driver, { session: 'practice' });
+        score += (driver.carLink.compatibility - 60) * 0.25;
+        score += carLinkImpact.readiness * 8;
+        score -= carLinkImpact.adaptationDrag * 45;
+        if (driver.carLink.compatibility < 60) {
+            messages.push("Driver still feels disconnected from the current chassis balance.");
+        } else if (driver.carLink.compatibility > 80 && carLinkImpact.readiness > 0.6) {
+            messages.push("Driver gels with the car quickly—setup feedback is sharp.");
+        }
 
         // 2. Negative Events
         // Reliability Issue
