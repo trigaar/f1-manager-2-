@@ -2342,6 +2342,21 @@ const App: React.FC = () => {
     clearHeadquartersState,
   ]);
 
+  const handleStartNewGame = useCallback(() => {
+    handleResetAllStandings();
+    clearAutoSave();
+    setHasAutoSave(false);
+    setLastAutoSaveAt(null);
+    setGamePhase(GamePhase.INTRO);
+    setShowLoadModal(false);
+    setShowSaveMenu(false);
+    setLoadStatusMessage(null);
+    setAutoSaveMessage(null);
+    setManualCookieSaveStatus(null);
+    setSaveCodeValue('');
+    setLoadCodeValue('');
+  }, [handleResetAllStandings]);
+
   const handleCommentaryUpdate = useCallback((events: LapEvent[]) => {
     if (highlightTimeoutRef.current) {
         clearTimeout(highlightTimeoutRef.current);

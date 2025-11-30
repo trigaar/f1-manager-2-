@@ -1,4 +1,4 @@
-import { CarLink, InitialDriver } from '../types';
+import { CarLink, DriverSkills, InitialDriver } from '../types';
 import { CARS } from './teams';
 import { DRIVER_TRAITS } from './traits';
 
@@ -32,6 +32,48 @@ const DRIVER_CAR_LINKS: Record<number, CarLink> = {
   32:{ compatibility: 90, adaptation: 92, notes: 'Feels at one with the chassis immediately.' },
 };
 
+const SPECIALTY_FALLBACKS = [
+  'Racecraft IQ',
+  'Qualifying Burst',
+  'Tyre Whisperer',
+  'Defensive Wall',
+  'Starts Ace',
+  'Wet Weather Control',
+  'Consistent Finisher',
+];
+
+const normalizeSpecialties = (driverSkills: DriverSkills): string[] => {
+  const overall = driverSkills.overall;
+  const uniqueSpecialties = Array.from(new Set(driverSkills.specialties ?? []));
+
+  let minCount = 1;
+  let maxCount = 1;
+
+  if (overall >= 95) {
+    minCount = 3;
+    maxCount = Math.max(uniqueSpecialties.length, 4); // Best drivers can carry 3+
+  } else if (overall >= 90) {
+    minCount = 2;
+    maxCount = 3; // Top drivers carry 2-3 standout strengths
+  }
+
+  const trimmed = uniqueSpecialties.slice(0, maxCount);
+  const padded = [...trimmed];
+
+  for (const fallback of SPECIALTY_FALLBACKS) {
+    if (padded.length >= minCount) break;
+    if (!padded.includes(fallback)) {
+      padded.push(fallback);
+    }
+  }
+
+  while (padded.length < minCount) {
+    padded.push(`Signature Strength ${padded.length + 1}`);
+  }
+
+  return padded;
+};
+
 // The roster is now set to the definitive 2025 season lineup with refreshed specialties.
 const DRIVER_SEED: DriverSeed[] = [
   // McLaren Formula 1 Team
@@ -52,7 +94,7 @@ const DRIVER_SEED: DriverSeed[] = [
       loyalty: 99,
       potential: 99,
       reputation: 90,
-      specialties: ['Apex Precision', 'Error-Free Runs'],
+      specialties: ['Apex Precision', 'Error-Free Runs', 'Calm Tyre Nursing'],
       trait: DRIVER_TRAITS.MR_CONSISTENT,
     },
     car: CARS.McLaren,
@@ -87,7 +129,7 @@ const DRIVER_SEED: DriverSeed[] = [
       loyalty: 100,
       potential: 98,
       reputation: 94,
-      specialties: ['Wet Weather Control', 'Qualifying Attacks'],
+      specialties: ['Wet Weather Control', 'Qualifying Attacks', 'Late-Stint Pace'],
       trait: DRIVER_TRAITS.RAIN_MASTER,
     },
     car: CARS.McLaren,
@@ -124,7 +166,7 @@ const DRIVER_SEED: DriverSeed[] = [
       loyalty: 95,
       potential: 97,
       reputation: 99,
-      specialties: ['Late Braker', 'Race Pace Bully', 'Adaptable Lines'],
+      specialties: ['Late Braker', 'Race Pace Bully', 'Adaptable Lines', 'Relentless Consistency'],
       trait: DRIVER_TRAITS.THE_OVERTAKER,
     },
     car: CARS.RedBull,
@@ -159,7 +201,7 @@ const DRIVER_SEED: DriverSeed[] = [
       loyalty: 95,
       potential: 90,
       reputation: 80,
-      specialties: ['Send It', 'Counter Moves'],
+      specialties: ['Send It'],
       trait: DRIVER_TRAITS.ERROR_PRONE,
     },
     car: CARS.RedBull,
@@ -196,7 +238,7 @@ const DRIVER_SEED: DriverSeed[] = [
       loyalty: 98,
       potential: 95,
       reputation: 92,
-      specialties: ['Qualifying Maestro', 'Race Restarts'],
+      specialties: ['Qualifying Maestro', 'Race Restarts', 'ERS Guardian'],
       trait: DRIVER_TRAITS.MR_SATURDAY,
     },
     car: CARS.Mercedes,
@@ -231,7 +273,7 @@ const DRIVER_SEED: DriverSeed[] = [
       loyalty: 98,
       potential: 99,
       reputation: 72,
-      specialties: ['Rising Star', 'Late-race Composure'],
+      specialties: ['Rising Star'],
       trait: DRIVER_TRAITS.CLUTCH_PERFORMER,
     },
     car: CARS.Mercedes,
@@ -268,7 +310,7 @@ const DRIVER_SEED: DriverSeed[] = [
       loyalty: 100,
       potential: 96,
       reputation: 94,
-      specialties: ['Quali Artist', 'Turn-in Specialist'],
+      specialties: ['Quali Artist', 'Turn-in Specialist', 'Clutch Finisher'],
       trait: DRIVER_TRAITS.MR_SATURDAY,
     },
     car: CARS.Ferrari,
@@ -375,7 +417,7 @@ const DRIVER_SEED: DriverSeed[] = [
       loyalty: 89,
       potential: 90,
       reputation: 90,
-      specialties: ['Smooth Operator', 'Tyre Saving Under Pressure'],
+      specialties: ['Smooth Operator'],
       trait: DRIVER_TRAITS.CLUTCH_PERFORMER,
     },
     car: CARS.Williams,
@@ -447,7 +489,7 @@ const DRIVER_SEED: DriverSeed[] = [
       loyalty: 100,
       potential: 83,
       reputation: 76,
-      specialties: ['Launch Specialist', 'Risk-on Overtakes'],
+      specialties: ['Launch Specialist'],
       trait: DRIVER_TRAITS.ROCKET_START,
     },
     car: CARS.AstonMartin,
@@ -484,7 +526,7 @@ const DRIVER_SEED: DriverSeed[] = [
       loyalty: 90,
       potential: 73,
       reputation: 83,
-      specialties: ['Quali Punch', 'Safety-Car Restarts'],
+      specialties: ['Quali Punch'],
       trait: DRIVER_TRAITS.CLUTCH_PERFORMER,
     },
     car: CARS.Sauber,
@@ -519,7 +561,7 @@ const DRIVER_SEED: DriverSeed[] = [
       loyalty: 96,
       potential: 94,
       reputation: 70,
-      specialties: ['Quali Flash', 'Junior Composure'],
+      specialties: ['Quali Flash'],
       trait: DRIVER_TRAITS.CLUTCH_PERFORMER,
     },
     car: CARS.Sauber,
@@ -556,7 +598,7 @@ const DRIVER_SEED: DriverSeed[] = [
       loyalty: 95,
       potential: 96,
       reputation: 71,
-      specialties: ['Late-Brake Heroics', 'High-Risk Duels'],
+      specialties: ['Late-Brake Heroics'],
       trait: DRIVER_TRAITS.CLUTCH_PERFORMER,
     },
     car: CARS.RB,
@@ -591,7 +633,7 @@ const DRIVER_SEED: DriverSeed[] = [
       loyalty: 95,
       potential: 93,
       reputation: 74,
-      specialties: ['Race Pace Growth', 'Tyre Care Basics'],
+      specialties: ['Race Pace Growth'],
       trait: DRIVER_TRAITS.MR_CONSISTENT,
     },
     car: CARS.RB,
@@ -628,7 +670,7 @@ const DRIVER_SEED: DriverSeed[] = [
       loyalty: 81,
       potential: 87,
       reputation: 84,
-      specialties: ['Defensive Lines', 'Wet Stability'],
+      specialties: ['Defensive Lines'],
       trait: DRIVER_TRAITS.THE_WALL,
     },
     car: CARS.Haas,
@@ -663,7 +705,7 @@ const DRIVER_SEED: DriverSeed[] = [
       loyalty: 97,
       potential: 95,
       reputation: 71,
-      specialties: ['Quali Punch', 'Rookie Calm'],
+      specialties: ['Quali Punch'],
       trait: DRIVER_TRAITS.CLUTCH_PERFORMER,
     },
     car: CARS.Haas,
@@ -700,7 +742,7 @@ const DRIVER_SEED: DriverSeed[] = [
       loyalty: 93,
       potential: 86,
       reputation: 85,
-      specialties: ['Launch Punch', 'Wet Aggression'],
+      specialties: ['Launch Punch'],
       trait: DRIVER_TRAITS.ROCKET_START,
     },
     car: CARS.Alpine,
@@ -735,7 +777,7 @@ const DRIVER_SEED: DriverSeed[] = [
       loyalty: 94,
       potential: 89,
       reputation: 66,
-      specialties: ['Rookie Patience', 'Clean Laps'],
+      specialties: ['Rookie Patience'],
       trait: DRIVER_TRAITS.MR_CONSISTENT,
     },
     car: CARS.Alpine,
@@ -807,7 +849,7 @@ const DRIVER_SEED: DriverSeed[] = [
       loyalty: 85,
       potential: 79,
       reputation: 80,
-      specialties: ['Divebomb Specialist', 'Defensive Elbows'],
+      specialties: ['Divebomb Specialist'],
       trait: DRIVER_TRAITS.ERROR_PRONE,
     },
     car: CARS.Haas,
@@ -842,7 +884,7 @@ const DRIVER_SEED: DriverSeed[] = [
       loyalty: 94,
       potential: 88,
       reputation: 67,
-      specialties: ['Quali Builder', 'Tyre Learner'],
+      specialties: ['Quali Builder'],
       trait: DRIVER_TRAITS.MR_CONSISTENT,
     },
     car: CARS.Alpine,
@@ -877,7 +919,7 @@ const DRIVER_SEED: DriverSeed[] = [
       loyalty: 82,
       potential: 78,
       reputation: 82,
-      specialties: ['Fuel & Tyre Caller', 'Lap-Delta Discipline'],
+      specialties: ['Fuel & Tyre Caller'],
       trait: DRIVER_TRAITS.STRATEGY_SAVANT,
     },
     car: CARS.Sauber,
@@ -912,7 +954,7 @@ const DRIVER_SEED: DriverSeed[] = [
       loyalty: 79,
       potential: 85,
       reputation: 75,
-      specialties: ['Tyre Economy', 'Calm Racecraft'],
+      specialties: ['Tyre Economy'],
       trait: DRIVER_TRAITS.MR_CONSISTENT,
     },
     car: CARS.Sauber,
@@ -934,5 +976,9 @@ const DRIVER_SEED: DriverSeed[] = [
 
 export const INITIAL_DRIVERS: InitialDriver[] = DRIVER_SEED.map(driver => ({
   ...driver,
+  driverSkills: {
+    ...driver.driverSkills,
+    specialties: normalizeSpecialties(driver.driverSkills),
+  },
   carLink: DRIVER_CAR_LINKS[driver.id] || { compatibility: 60, adaptation: 60, notes: 'Baseline fit' },
 }));
