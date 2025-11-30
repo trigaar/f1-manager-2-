@@ -178,6 +178,7 @@ export const simulateRaceLap = (
     nextDrivers = nextDrivers.map((driver) => ({
       ...driver,
       lapTime: safeClampNumber(driver.lapTime, nextRaceState.track.baseLapTime, 40, 400),
+      totalRaceTime: safeClampNumber(driver.totalRaceTime, driver.lapTime || nextRaceState.track.baseLapTime, 0, Number.MAX_SAFE_INTEGER),
       pittedThisLap: false,
     }));
 
@@ -200,6 +201,26 @@ export const simulateRaceLap = (
   nextDrivers = incidentData.updatedDrivers;
   lapEvents.push(...incidentData.lapEvents);
   flagTriggers.push(...incidentData.flagTriggers);
+
+  const redFlagTriggered = flagTriggers.includes(RaceFlag.Red);
+  if (redFlagTriggered) {
+    nextRaceState.flag = RaceFlag.Red;
+    nextRaceState.flagLaps = Math.max(nextRaceState.flagLaps || 0, 3);
+    lapEvents.unshift({ type: 'RED_FLAG', driverName: 'Race Control', data: { status: 'Session stopped' } });
+    nextDrivers = nextDrivers.map((driver) => ({
+      ...driver,
+      lapTime: safeClampNumber(driver.lapTime, nextRaceState.track.baseLapTime, 40, 400),
+      totalRaceTime: safeClampNumber(driver.totalRaceTime, driver.lapTime || nextRaceState.track.baseLapTime, 0, Number.MAX_SAFE_INTEGER),
+      pittedThisLap: false,
+    }));
+    addLog('Race Control: red flag — cars will line up and await the restart.');
+
+    return {
+      nextDrivers,
+      nextRaceState,
+      lapEvents,
+    };
+  }
 
   const isWet = isWetWeather(weather);
 
