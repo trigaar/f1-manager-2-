@@ -101,6 +101,7 @@ interface CookieSavePayload {
 
 const DEFAULT_SAVE_COOKIE_NAME = 'f1ManagerSave';
 const DEFAULT_SAVE_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
+const DEFAULT_SAVE_STORAGE_KEY = `${DEFAULT_SAVE_COOKIE_NAME}-payload`;
 
 export interface SaveStateSetters {
   setGamePhase: (phase: GamePhase) => void;
@@ -212,25 +213,68 @@ const readCookie = (name: string): string | null => {
   return null;
 };
 
-export const getCookieSaveMetadata = (
+const writeAutoSavePayload = (
+  payload: CookieSavePayload,
   cookieName: string = DEFAULT_SAVE_COOKIE_NAME,
-): { hasSave: boolean; savedAt?: string; message: string } => {
+  storageKey: string = DEFAULT_SAVE_STORAGE_KEY,
+) => {
+  const serialized = JSON.stringify(payload);
+  setCookie(cookieName, serialized);
+
+  if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+    try {
+      window.localStorage.setItem(storageKey, serialized);
+    } catch (error) {
+      console.warn('Unable to persist auto-save payload to localStorage', error);
+    }
+  }
+};
+
+const readAutoSavePayload = (
+  cookieName: string = DEFAULT_SAVE_COOKIE_NAME,
+  storageKey: string = DEFAULT_SAVE_STORAGE_KEY,
+): CookieSavePayload | null => {
   try {
     const cookieValue = readCookie(cookieName);
-    if (!cookieValue) {
+    if (cookieValue) {
+      return JSON.parse(cookieValue) as CookieSavePayload;
+    }
+
+    if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+      const stored = window.localStorage.getItem(storageKey);
+      if (stored) {
+        const parsed = JSON.parse(stored) as CookieSavePayload;
+        // Heal missing cookie for future reads
+        writeAutoSavePayload(parsed, cookieName, storageKey);
+        return parsed;
+      }
+    }
+  } catch (error) {
+    console.error('Failed to read auto-save payload', error);
+  }
+
+  return null;
+};
+
+export const getCookieSaveMetadata = (
+  cookieName: string = DEFAULT_SAVE_COOKIE_NAME,
+  storageKey: string = DEFAULT_SAVE_STORAGE_KEY,
+): { hasSave: boolean; savedAt?: string; message: string } => {
+  try {
+    const payload = readAutoSavePayload(cookieName, storageKey);
+    if (!payload) {
       return { hasSave: false, message: 'No auto-save cookie found.' };
     }
 
-    const parsed = JSON.parse(cookieValue) as Partial<CookieSavePayload>;
-    if (!parsed.code) {
+    if (!payload.code) {
       return { hasSave: false, message: 'Auto-save cookie is missing save data.' };
     }
 
     return {
       hasSave: true,
-      savedAt: parsed.savedAt,
-      message: parsed.savedAt
-        ? `Auto-save available from ${new Date(parsed.savedAt).toLocaleString()}.`
+      savedAt: payload.savedAt,
+      message: payload.savedAt
+        ? `Auto-save available from ${new Date(payload.savedAt).toLocaleString()}.`
         : 'Auto-save available.',
     };
   } catch (error) {
@@ -766,6 +810,7 @@ export const loadFromSaveCode = (code: string, setters: SaveStateSetters): { suc
 export const persistSaveToCookie = (
   state: GameSaveState,
   cookieName: string = DEFAULT_SAVE_COOKIE_NAME,
+  storageKey: string = DEFAULT_SAVE_STORAGE_KEY,
 ): { success: boolean; message: string } => {
   try {
     const code = generateSaveCode(state);
@@ -774,7 +819,7 @@ export const persistSaveToCookie = (
       version: state.version ?? 1,
       savedAt: new Date().toISOString(),
     };
-    setCookie(cookieName, JSON.stringify(payload));
+    writeAutoSavePayload(payload, cookieName, storageKey);
     return { success: true, message: 'Game auto-saved to browser cookie.' };
   } catch (error) {
     console.error('Failed to persist save to cookie', error);
@@ -788,14 +833,14 @@ export const persistSaveToCookie = (
 export const loadSaveFromCookie = (
   setters: SaveStateSetters,
   cookieName: string = DEFAULT_SAVE_COOKIE_NAME,
+  storageKey: string = DEFAULT_SAVE_STORAGE_KEY,
 ): { success: boolean; message: string } => {
   try {
-    const cookieValue = readCookie(cookieName);
-    if (!cookieValue) {
+    const payload = readAutoSavePayload(cookieName, storageKey);
+    if (!payload) {
       return { success: false, message: 'No auto-save cookie found.' };
     }
 
-    const payload = JSON.parse(cookieValue) as CookieSavePayload;
     if (!payload.code) {
       return { success: false, message: 'Auto-save cookie is missing a save code.' };
     }
