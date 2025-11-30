@@ -2315,14 +2315,33 @@ const App: React.FC = () => {
   }, [formatEventMessage]);
 
   const runSimulationLap = useCallback(() => {
-    if (raceStateRef.current.lap > raceStateRef.current.totalLaps) {
+    const fallbackTrack = seasonTracks[currentRaceIndex] || FULL_SEASON_TRACKS[0];
+    const safeTrack = raceStateRef.current.track?.laps ? sanitizeTrackState(raceStateRef.current.track) : fallbackTrack;
+    const safeLap = clampNumber(raceStateRef.current.lap ?? 0, 0, 0, safeTrack.laps + 1);
+    const safeTotalLaps = clampNumber(
+      raceStateRef.current.totalLaps ?? safeTrack.laps,
+      safeTrack.laps,
+      1,
+      300
+    );
+
+    const hydratedRaceState: RaceState = {
+      ...raceStateRef.current,
+      track: safeTrack,
+      lap: safeLap,
+      totalLaps: safeTotalLaps,
+    };
+
+    raceStateRef.current = hydratedRaceState;
+
+    if (hydratedRaceState.lap > hydratedRaceState.totalLaps) {
       setGamePhase(GamePhase.FINISHED);
       return;
     }
 
     const { nextDrivers, nextRaceState, lapEvents } = calculateNextStates(
       driversRef.current,
-      raceStateRef.current,
+      hydratedRaceState,
       personnelRef.current,
       fastestLapRef.current,
       addLog,
@@ -2334,7 +2353,15 @@ const App: React.FC = () => {
     setRaceState(nextRaceState);
     setRaceLapEvents(prev => [...prev, ...lapEvents]);
     handleCommentaryUpdate(lapEvents);
-  }, [addLog, formatEventMessage, handleCommentaryUpdate, raceHistory, setFastestLap]);
+  }, [
+    addLog,
+    currentRaceIndex,
+    formatEventMessage,
+    handleCommentaryUpdate,
+    raceHistory,
+    seasonTracks,
+    setFastestLap,
+  ]);
 
   const calculateRaceRatings = (finalDrivers: Driver[]): Driver[] => {
       const teammateMap = new Map<string, number[]>();
