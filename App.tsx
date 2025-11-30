@@ -1,7 +1,7 @@
 
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { RaceState, Driver, Track, GamePhase, TyreCompound, LapEvent, RaceFlag, InitialDriver, QualifyingResult, OffSeasonPhase, TeamFinances, TeamPersonnel, PersonnelChangeEvent, DriverMarketEvent, Car, CarDevelopmentResult, DriverStanding, RegulationEvent, RookieDriver, Tyre, DriverProgressionEvent, RaceHistory, LapEventType, ResourceAllocationEvent, PracticeResult, AiRaceSummary, AiSeasonReview, UpcomingRaceQuote, TeamDebrief, DriverDebrief, PlayerCarDev, AffiliateDriver, AffiliateChangeEvent, ConstructorStanding, ShortlistDriver, HeadquartersEvent, HeadquartersEventEffect, HeadquartersEventResolution, WeekendModifier } from './types';
+import { RaceState, Driver, Track, GamePhase, TyreCompound, LapEvent, RaceFlag, InitialDriver, QualifyingResult, OffSeasonPhase, TeamFinances, TeamPersonnel, PersonnelChangeEvent, DriverMarketEvent, Car, CarDevelopmentResult, DriverStanding, RegulationEvent, RookieDriver, Tyre, DriverProgressionEvent, RaceHistory, LapEventType, ResourceAllocationEvent, PracticeResult, AiRaceSummary, AiSeasonReview, UpcomingRaceQuote, TeamDebrief, DriverDebrief, PlayerCarDev, AffiliateDriver, AffiliateChangeEvent, ConstructorStanding, ShortlistDriver, HeadquartersEvent, HeadquartersEventEffect, HeadquartersEventResolution, WeekendModifier, Strategy } from './types';
 import { FULL_SEASON_TRACKS, SHORT_SEASON_TRACKS, INITIAL_DRIVERS, TYRE_LIFE, INITIAL_PERSONNEL, CARS, TEAM_COLORS, ROOKIE_POOL, TYRE_PROPERTIES, TIRE_BLANKET_TEMP, AFFILIATE_CANDIDATES } from './constants';
 import { pickRandomHeadquartersEvent } from './constants/headquartersEvents';
 import { generateLocalStrategy } from './services/strategyService';
@@ -28,7 +28,10 @@ import { runAffiliateProgression, runAIAffiliateSignings } from './services/affi
 import { buildInitialRaceState, calculateNextSeasonTracks, createNewRookies, updateRosterForNewSeason } from './services/seasonResetService';
 import { calculateCarLinkImpact } from './services/carLinkService';
 import { rollPreRaceEventForTeam } from './services/preRaceEventService';
-import { applyLoadedGameState, GameSaveState, generateSaveCode, getCurrentGameState, loadFromSaveCode, SaveStateSetters } from './services/saveSystem';
+import { applyLoadedGameState, GameSaveState, generateSaveCode, getCurrentGameState, loadFromSaveCode, loadSaveFromCookie, persistSaveToCookie, SaveStateSetters } from './services/saveSystem';
+import { computeSafeLapTime, safeClampNumber } from './utils/lapUtils';
+import { clampNumber, sanitizeTrackState, sanitizeDriverState, buildFallbackLapTime, sanitizeLapTiming, hydrateRaceState } from './services/raceEngine';
+import { simulateRaceLap } from './services/raceDayEngine';
 import SetupScreen from './components/SetupScreen';
 import Leaderboard from './components/Leaderboard';
 import RaceControlPanel from './components/RaceControlPanel';
@@ -215,74 +218,6 @@ const calculateRaceTSM = (car: Car, track: Track): number => {
     return tsm;
 };
 
-const clampNumber = (value: number, fallback: number, min?: number, max?: number): number => {
-    if (!Number.isFinite(value)) return fallback;
-    if (min !== undefined && value < min) return min;
-    if (max !== undefined && value > max) return max;
-    return value;
-};
-
-const sanitizeTrackState = (track: Track): Track => {
-    return {
-        ...track,
-        baseLapTime: clampNumber(track.baseLapTime, 90, 60, 140),
-        pitLaneTimeLoss: clampNumber(track.pitLaneTimeLoss, 20, 12, 40),
-        laps: Math.max(10, track.laps || 50),
-        tyreStress: clampNumber(track.tyreStress, 3, 1, 6),
-        brakeWear: clampNumber(track.brakeWear, 3, 1, 6),
-        powerSensitivity: clampNumber(track.powerSensitivity, 3, 1, 6),
-        safetyCarProbability: clampNumber(track.safetyCarProbability, 0.5, 0, 1),
-        virtualSafetyCarProbability: clampNumber(track.virtualSafetyCarProbability, 0.5, 0, 1),
-    };
-};
-
-const sanitizeDriverState = (driver: Driver, baseLapRef: number, track: Track): Driver => {
-    const fallbackTyre = driver.currentTyres?.compound || TyreCompound.Medium;
-    const tyre = driver.currentTyres || {
-        compound: fallbackTyre,
-        wear: 0,
-        age: 0,
-        temperature: TIRE_BLANKET_TEMP,
-        condition: 'Cold' as const,
-    };
-
-    const safeTemperature = clampNumber(tyre.temperature, TIRE_BLANKET_TEMP, track.tyreStress > 4 ? 60 : 40, 150);
-    const safeWear = clampNumber(tyre.wear, 0, 0, 100);
-
-    return {
-        ...driver,
-        position: Math.max(1, driver.position || 1),
-        startingPosition: Math.max(1, driver.startingPosition || 1),
-        totalRaceTime: clampNumber(driver.totalRaceTime ?? 0, 0, 0, Number.MAX_SAFE_INTEGER),
-        gapToLeader: clampNumber(driver.gapToLeader ?? 0, 0, 0, Number.MAX_SAFE_INTEGER),
-        lapTime: clampNumber(driver.lapTime ?? baseLapRef, baseLapRef, 40, Number.MAX_SAFE_INTEGER),
-        fuelLoad: clampNumber(driver.fuelLoad ?? 105, 105, 0, 120),
-        currentTyres: {
-            ...tyre,
-            wear: safeWear,
-            age: clampNumber(tyre.age ?? 0, 0, 0, 200),
-            temperature: safeTemperature,
-            condition: tyre.condition || 'Cold',
-        },
-        penalties: driver.penalties || [],
-        compoundsUsed: driver.compoundsUsed?.length ? driver.compoundsUsed : [fallbackTyre],
-        raceStatus: driver.raceStatus || 'Racing',
-    };
-};
-
-const sanitizeLapTiming = (driver: Driver, baseLapRef: number): Driver => {
-    const safeLapTime = clampNumber(driver.lapTime ?? baseLapRef, baseLapRef, 40, 400);
-    const safeTotalTime = clampNumber(driver.totalRaceTime ?? safeLapTime, safeLapTime, 0, Number.MAX_SAFE_INTEGER);
-    const safeGap = Number.isFinite(driver.gapToLeader) && driver.gapToLeader >= 0 ? driver.gapToLeader : 0;
-
-    return {
-        ...driver,
-        lapTime: safeLapTime,
-        totalRaceTime: safeTotalTime,
-        gapToLeader: safeGap,
-    };
-};
-
 
 const calculateNextStates = (
     prevDrivers: Driver[],
@@ -294,6 +229,20 @@ const calculateNextStates = (
     formatEventMessage: (event: LapEvent) => string,
     raceHistory: RaceHistory
 ): { nextDrivers: Driver[], nextRaceState: RaceState, lapEvents: LapEvent[] } => {
+    const fallbackTrack = prevRaceState.track || FULL_SEASON_TRACKS[0];
+    // Route all lap simulation through the rebuilt race-day engine; legacy logic below is intentionally bypassed.
+    return simulateRaceLap(
+        prevDrivers,
+        prevRaceState,
+        personnel,
+        fastestLap,
+        addLog,
+        setFastestLap,
+        formatEventMessage,
+        raceHistory,
+        fallbackTrack,
+    );
+
     let nextDrivers = JSON.parse(JSON.stringify(prevDrivers)) as Driver[];
     let nextRaceState = { ...prevRaceState };
     let lapEvents: LapEvent[] = [];
@@ -301,9 +250,13 @@ const calculateNextStates = (
 
     // Guardrails for any corrupt state that might have slipped through between sessions
     const safeTrack = sanitizeTrackState(nextRaceState.track);
+    const safeWeather = nextRaceState.weather || 'Sunny';
+
     nextRaceState = {
         ...nextRaceState,
         track: safeTrack,
+        weather: safeWeather,
+        flag: nextRaceState.flag || RaceFlag.Green,
         airTemp: clampNumber(nextRaceState.airTemp, 25, -10, 60),
         trackTemp: clampNumber(nextRaceState.trackTemp, 40, -10, 80),
         trackCondition: {
@@ -312,7 +265,7 @@ const calculateNextStates = (
         },
         masterWeatherForecast: nextRaceState.masterWeatherForecast?.length ? nextRaceState.masterWeatherForecast : Array.from({
             length: safeTrack.laps
-        }, () => nextRaceState.weather || 'Sunny'),
+        }, () => safeWeather),
         teamWeatherForecasts: nextRaceState.teamWeatherForecasts || {},
     };
 
@@ -419,8 +372,10 @@ const calculateNextStates = (
             continue;
         }
         
+        const driverForm = Number.isFinite(driver.form) ? driver.form : 0;
+
         let lapPerformanceModifier = (1 - driver.driverSkills.consistency / 110) * (Math.random() - 0.5) * 2.4; // -1 to 1 range, scaled by consistency
-        lapPerformanceModifier += (driver.form / 8); // Form has a stronger effect
+        lapPerformanceModifier += (driverForm / 8); // Form has a stronger effect
         if (driver.driverSkills.trait?.id === 'CLUTCH_PERFORMER' && nextRaceState.lap > nextRaceState.totalLaps - 10) {
             lapPerformanceModifier -= 0.1; // Small boost in final laps
         }
@@ -636,7 +591,12 @@ const calculateNextStates = (
             let baseLapTime = nextRaceState.track.baseLapTime + (newWaterLevel / 10);
 
             if (!Number.isFinite(baseLapTime)) {
-                baseLapTime = Math.max(70, (nextRaceState.track.baseLapTime || 90));
+                const driverPaceAnchor = clampNumber(driver.driverSkills.overall ?? 80, 80, 40, 120);
+                const individuality = (Math.random() - 0.5) * 1.5;
+                baseLapTime = Math.max(
+                    70,
+                    (nextRaceState.track.baseLapTime || baseLapReference) + ((100 - driverPaceAnchor) * 0.04) + individuality,
+                );
             }
 
             if (driver.hqModifiers?.lapTimeModifier) {
@@ -738,16 +698,44 @@ const calculateNextStates = (
                 raceCraftPenalty *= 0.8;
             }
             baseLapTime += raceCraftPenalty + lapPerformanceModifier;
-            const safeLapTime = clampNumber(parseFloat(baseLapTime.toFixed(3)), baseLapReference, 40, 400);
-            driver.lapTime = safeLapTime;
+
+            try {
+                const flagMultiplier = nextRaceState.flag === RaceFlag.SafetyCar ? 1.5
+                    : nextRaceState.flag === RaceFlag.VirtualSafetyCar ? 1.3 : 1.0;
+                const weatherMultiplier = (newWeather === 'Extreme Rain') ? 1.15 : 1.0;
+                const modifiers = {
+                    weatherMultiplier,
+                    flagMultiplier,
+                    raceCraftPenalty,
+                    lapPerformanceModifier,
+                    baseLapReference,
+                };
+                const rawBaseLapTime = baseLapTime;
+                console.debug('[LAPTIME DEBUG] before computeSafeLapTime', { driver: driver.name, rawBaseLapTime, modifiers });
+                const safeLapTime = computeSafeLapTime(rawBaseLapTime, modifiers);
+                console.debug('[LAPTIME DEBUG] computed safeLapTime', { driver: driver.name, safeLapTime });
+                driver.lapTime = safeLapTime;
+            } catch (err) {
+                console.error('Lap time computation failed, using fallback lap time', err);
+                driver.lapTime = buildFallbackLapTime(driver, baseLapReference, safeTrack);
+            }
+
             if (driver.raceStatus === 'Racing' && nextRaceState.flag === RaceFlag.Green && (!fastestLap || driver.lapTime < fastestLap.time)) {
                 setFastestLap({ driverName: driver.name, time: driver.lapTime });
                 lapEvents.push({ type: 'FASTEST_LAP', driverName: driver.name, data: { time: driver.lapTime }});
             }
         }
 
-        const lapTimeApplied = clampNumber(driver.lapTime, baseLapReference, 40, 400);
-        driver.totalRaceTime = clampNumber(driver.totalRaceTime + lapTimeApplied, lapTimeApplied, 0, Number.MAX_SAFE_INTEGER);
+        const lapTimeApplied = Number.isFinite(driver.lapTime) && driver.lapTime > 0
+            ? safeClampNumber(driver.lapTime, baseLapReference, 40, 400)
+            : buildFallbackLapTime(driver, baseLapReference, safeTrack);
+
+        const startingTotalTime = Number.isFinite(driver.totalRaceTime)
+            ? driver.totalRaceTime
+            : lapTimeApplied;
+
+        driver.lapTime = lapTimeApplied;
+        driver.totalRaceTime = safeClampNumber(startingTotalTime + lapTimeApplied, lapTimeApplied, 0, Number.MAX_SAFE_INTEGER);
         let fuelConsumption = 1.8;
         if (driver.paceMode === 'Pushing') fuelConsumption *= 1.1;
         if (driver.paceMode === 'Conserving') fuelConsumption *= 0.85;
@@ -992,7 +980,7 @@ const calculateNextStates = (
         }
     }
     
-    nextDrivers = nextDrivers.map(driver => sanitizeLapTiming(driver, baseLapReference));
+    nextDrivers = nextDrivers.map(driver => sanitizeLapTiming(driver, baseLapReference, safeTrack));
 
     nextDrivers.sort(sortDrivers);
     const leaderTime = nextDrivers.find(d => d.raceStatus !== 'Crashed' && d.raceStatus !== 'DNF')?.totalRaceTime || 0;
@@ -1079,6 +1067,8 @@ const App: React.FC = () => {
   const [saveStatusMessage, setSaveStatusMessage] = useState<string | null>(null);
   const [loadCodeValue, setLoadCodeValue] = useState<string>('');
   const [loadStatusMessage, setLoadStatusMessage] = useState<string | null>(null);
+  const [autoSaveMessage, setAutoSaveMessage] = useState<string | null>(null);
+  const [lastAutoSaveAt, setLastAutoSaveAt] = useState<string | null>(null);
   const [hqEvent, setHqEvent] = useState<HeadquartersEvent | null>(null);
   const [hqEventRaceKey, setHqEventRaceKey] = useState<string | null>(null);
   const [pendingHqImpact, setPendingHqImpact] = useState<HeadquartersEventResolution | null>(null);
@@ -1104,6 +1094,139 @@ const App: React.FC = () => {
   }), []);
 
   const raceWeekendKey = useMemo(() => `${season}-${currentRaceIndex}`, [season, currentRaceIndex]);
+
+  const clearHeadquartersState = useCallback(() => {
+    setActiveHqModifiers(null);
+    setPendingHqImpact(null);
+    setHqEvent(null);
+    setHqEventRaceKey(null);
+    setWeekendModifiers([]);
+  }, []);
+
+  useEffect(() => {
+    setPendingHqImpact(prev => (prev && prev.raceKey && prev.raceKey !== raceWeekendKey ? null : prev));
+    setActiveHqModifiers(prev => (prev && prev.raceKey && prev.raceKey !== raceWeekendKey ? null : prev));
+    setWeekendModifiers(prev => prev.filter(mod => !mod.raceKey || mod.raceKey === raceWeekendKey));
+    setHqEvent(prev => (prev && hqEventRaceKey && hqEventRaceKey !== raceWeekendKey ? null : prev));
+    setHqEventRaceKey(prev => (prev && prev !== raceWeekendKey ? null : prev));
+  }, [hqEventRaceKey, raceWeekendKey]);
+
+  const weekendModifierMap = useMemo(() => {
+    const byTeam = new Map<string, WeekendModifier[]>();
+
+    if (activeHqModifiers && (!activeHqModifiers.raceKey || activeHqModifiers.raceKey === raceWeekendKey)) {
+      byTeam.set(activeHqModifiers.teamName, [activeHqModifiers]);
+    }
+
+    weekendModifiers
+      .filter(mod => !mod.raceKey || mod.raceKey === raceWeekendKey)
+      .forEach(mod => {
+        const existing = byTeam.get(mod.teamName) || [];
+        existing.push(mod);
+        byTeam.set(mod.teamName, existing);
+      });
+
+    const combined = new Map<string, WeekendModifier>();
+
+    byTeam.forEach((mods, teamName) => {
+      const aggregatedEffect = mods.reduce(
+        (acc, mod) => mergeHqEffects(acc, mod),
+        {} as HeadquartersEventEffect,
+      );
+
+      combined.set(teamName, {
+        ...aggregatedEffect,
+        id: `weekend-${mods.map(m => m.id).join('-')}`,
+        title: mods.map(m => m.title).filter(Boolean).join(' & ') || mods[0].title,
+        summary: mods.map(m => m.summary).filter(Boolean).join(' | ') || mods[0].summary,
+        teamName,
+        raceKey: raceWeekendKey,
+      } as WeekendModifier);
+    });
+
+    return combined;
+  }, [activeHqModifiers, mergeHqEffects, weekendModifiers, raceWeekendKey]);
+
+  const combineWeekendModifiers = useCallback((teamName: string, modifierOverride?: WeekendModifier[]) => {
+    if (modifierOverride) {
+      if (!modifierOverride.length) return null;
+
+      const aggregatedEffect = modifierOverride.reduce(
+        (acc, mod) => mergeHqEffects(acc, mod),
+        {} as HeadquartersEventEffect,
+      );
+
+      return {
+        ...aggregatedEffect,
+        id: `weekend-${modifierOverride.map(m => m.id).join('-')}`,
+        title: modifierOverride.map(m => m.title).filter(Boolean).join(' & ') || modifierOverride[0].title,
+        summary: modifierOverride.map(m => m.summary).filter(Boolean).join(' | ') || modifierOverride[0].summary,
+        teamName,
+      } as WeekendModifier;
+    }
+
+    return weekendModifierMap.get(teamName) || null;
+  }, [mergeHqEffects, weekendModifierMap]);
+
+  const applyWeekendModifiersToDriver = useCallback((driver: InitialDriver, modifierOverride?: WeekendModifier[]): InitialDriver => {
+    const modifier = combineWeekendModifiers(driver.car.teamName, modifierOverride);
+    if (!modifier) return driver;
+
+    const tyreLifeMultiplier = modifier.tyreLifeMultiplier ?? 1;
+    const adjustedCar: Car = {
+      ...driver.car,
+      overallPace: clamp(driver.car.overallPace + (modifier.paceDelta || 0), 60, 110),
+      reliability: clamp(driver.car.reliability + (modifier.reliabilityDelta || 0) - (modifier.engineWearDelta || 0), 1, 100),
+      tyreWearFactor: clamp(driver.car.tyreWearFactor * tyreLifeMultiplier + (modifier.tyreWearDelta || 0), 50, 120),
+    };
+
+    const adjustedSkills = {
+      ...driver.driverSkills,
+      qualifyingPace: clamp(driver.driverSkills.qualifyingPace + (modifier.qualifyingSkillDelta || 0), 1, 100),
+      raceCraft: clamp(driver.driverSkills.raceCraft + ((modifier.qualifyingSkillDelta || 0) / 2), 1, 100),
+      tyreManagement: clamp(driver.driverSkills.tyreManagement * tyreLifeMultiplier + (modifier.tyreWearDelta || 0), 1, 100),
+      consistency: clamp(driver.driverSkills.consistency + (modifier.confidenceDelta || 0), 1, 100),
+      incidentProneness: clamp(driver.driverSkills.incidentProneness + ((modifier.dnfRiskDelta || 0) / 2), 1, 100),
+    };
+
+    return {
+      ...driver,
+      car: adjustedCar,
+      driverSkills: adjustedSkills,
+      morale: clamp(driver.morale + (modifier.moraleDelta || 0), 0, 100),
+      happiness: clamp(driver.happiness + (modifier.confidenceDelta || 0), 0, 100),
+      hqModifiers: modifier,
+    };
+  }, [combineWeekendModifiers]);
+
+  const activeRoster = useMemo(() => roster.filter(d => d.status === 'Active').map(d => applyWeekendModifiersToDriver(d)), [roster, applyWeekendModifiersToDriver]);
+
+  const { standings, awardPoints, resetStandings, hydrateStandings } = useStandings(activeRoster);
+  const { standings: constructorStandings, awardConstructorPoints, resetConstructorStandings, hydrateConstructorStandings } = useConstructorStandings(activeRoster);
+  const { history: seasonHistory, archiveSeason, clearHistory, hydrateSeasonHistory } = useSeasonHistory();
+  const { history: raceHistory, recordWinner, clearRaceHistory, hydrateRaceHistory } = useRaceHistory();
+  const raceIntervalRef = useRef<number | null>(null);
+  const highlightTimeoutRef = useRef<number | null>(null);
+  const driversRef = useRef<Driver[]>(drivers);
+  const raceStateRef = useRef<RaceState>(raceState);
+  const personnelRef = useRef<TeamPersonnel[]>(personnel);
+  const fastestLapRef = useRef<{ driverName: string; time: number } | null>(fastestLap);
+
+  useEffect(() => {
+    driversRef.current = drivers;
+  }, [drivers]);
+
+  useEffect(() => {
+    raceStateRef.current = raceState;
+  }, [raceState]);
+
+  useEffect(() => {
+    personnelRef.current = personnel;
+  }, [personnel]);
+
+  useEffect(() => {
+    fastestLapRef.current = fastestLap;
+  }, [fastestLap]);
 
   const buildSaveSnapshot = useCallback((): GameSaveState => ({
     version: 1,
@@ -1220,6 +1343,22 @@ const App: React.FC = () => {
     seasonHistory,
   ]);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const snapshot = getCurrentGameState(buildSaveSnapshot());
+      const result = persistSaveToCookie(snapshot);
+      if (result.success) {
+        const timestamp = new Date().toLocaleTimeString();
+        setLastAutoSaveAt(timestamp);
+        setAutoSaveMessage(`Auto-saved to cookie at ${timestamp}.`);
+      } else {
+        setAutoSaveMessage(result.message);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [buildSaveSnapshot]);
+
   const saveSystemSetters = useMemo<SaveStateSetters>(() => ({
     setGamePhase,
     setOffSeasonPhase,
@@ -1283,119 +1422,6 @@ const App: React.FC = () => {
     hydrateSeasonHistory,
   ]);
 
-  const clearHeadquartersState = useCallback(() => {
-    setActiveHqModifiers(null);
-    setPendingHqImpact(null);
-    setHqEvent(null);
-    setHqEventRaceKey(null);
-    setWeekendModifiers([]);
-  }, []);
-
-  useEffect(() => {
-    setPendingHqImpact(prev => (prev && prev.raceKey && prev.raceKey !== raceWeekendKey ? null : prev));
-    setActiveHqModifiers(prev => (prev && prev.raceKey && prev.raceKey !== raceWeekendKey ? null : prev));
-    setWeekendModifiers(prev => prev.filter(mod => !mod.raceKey || mod.raceKey === raceWeekendKey));
-    setHqEvent(prev => (prev && hqEventRaceKey && hqEventRaceKey !== raceWeekendKey ? null : prev));
-    setHqEventRaceKey(prev => (prev && prev !== raceWeekendKey ? null : prev));
-  }, [hqEventRaceKey, raceWeekendKey]);
-
-  const weekendModifierMap = useMemo(() => {
-    const byTeam = new Map<string, WeekendModifier[]>();
-
-    if (activeHqModifiers && (!activeHqModifiers.raceKey || activeHqModifiers.raceKey === raceWeekendKey)) {
-      byTeam.set(activeHqModifiers.teamName, [activeHqModifiers]);
-    }
-
-    weekendModifiers
-      .filter(mod => !mod.raceKey || mod.raceKey === raceWeekendKey)
-      .forEach(mod => {
-        const existing = byTeam.get(mod.teamName) || [];
-        existing.push(mod);
-        byTeam.set(mod.teamName, existing);
-      });
-
-    const combined = new Map<string, WeekendModifier>();
-
-    byTeam.forEach((mods, teamName) => {
-      const aggregatedEffect = mods.reduce(
-        (acc, mod) => mergeHqEffects(acc, mod),
-        {} as HeadquartersEventEffect,
-      );
-
-      combined.set(teamName, {
-        ...aggregatedEffect,
-        id: `weekend-${mods.map(m => m.id).join('-')}`,
-        title: mods.map(m => m.title).filter(Boolean).join(' & ') || mods[0].title,
-        summary: mods.map(m => m.summary).filter(Boolean).join(' | ') || mods[0].summary,
-        teamName,
-        raceKey: raceWeekendKey,
-      } as WeekendModifier);
-    });
-
-    return combined;
-  }, [activeHqModifiers, mergeHqEffects, weekendModifiers, raceWeekendKey]);
-
-  const combineWeekendModifiers = useCallback((teamName: string, modifierOverride?: WeekendModifier[]) => {
-    if (modifierOverride) {
-      if (!modifierOverride.length) return null;
-
-      const aggregatedEffect = modifierOverride.reduce(
-        (acc, mod) => mergeHqEffects(acc, mod),
-        {} as HeadquartersEventEffect,
-      );
-
-      return {
-        ...aggregatedEffect,
-        id: `weekend-${modifierOverride.map(m => m.id).join('-')}`,
-        title: modifierOverride.map(m => m.title).filter(Boolean).join(' & ') || modifierOverride[0].title,
-        summary: modifierOverride.map(m => m.summary).filter(Boolean).join(' | ') || modifierOverride[0].summary,
-        teamName,
-      } as WeekendModifier;
-    }
-
-    return weekendModifierMap.get(teamName) || null;
-  }, [mergeHqEffects, weekendModifierMap]);
-
-  const applyWeekendModifiersToDriver = useCallback((driver: InitialDriver, modifierOverride?: WeekendModifier[]): InitialDriver => {
-    const modifier = combineWeekendModifiers(driver.car.teamName, modifierOverride);
-    if (!modifier) return driver;
-
-    const tyreLifeMultiplier = modifier.tyreLifeMultiplier ?? 1;
-    const adjustedCar: Car = {
-      ...driver.car,
-      overallPace: clamp(driver.car.overallPace + (modifier.paceDelta || 0), 60, 110),
-      reliability: clamp(driver.car.reliability + (modifier.reliabilityDelta || 0) - (modifier.engineWearDelta || 0), 1, 100),
-      tyreWearFactor: clamp(driver.car.tyreWearFactor * tyreLifeMultiplier + (modifier.tyreWearDelta || 0), 50, 120),
-    };
-
-    const adjustedSkills = {
-      ...driver.driverSkills,
-      qualifyingPace: clamp(driver.driverSkills.qualifyingPace + (modifier.qualifyingSkillDelta || 0), 1, 100),
-      raceCraft: clamp(driver.driverSkills.raceCraft + ((modifier.qualifyingSkillDelta || 0) / 2), 1, 100),
-      tyreManagement: clamp(driver.driverSkills.tyreManagement * tyreLifeMultiplier + (modifier.tyreWearDelta || 0), 1, 100),
-      consistency: clamp(driver.driverSkills.consistency + (modifier.confidenceDelta || 0), 1, 100),
-      incidentProneness: clamp(driver.driverSkills.incidentProneness + ((modifier.dnfRiskDelta || 0) / 2), 1, 100),
-    };
-
-    return {
-      ...driver,
-      car: adjustedCar,
-      driverSkills: adjustedSkills,
-      morale: clamp(driver.morale + (modifier.moraleDelta || 0), 0, 100),
-      happiness: clamp(driver.happiness + (modifier.confidenceDelta || 0), 0, 100),
-      hqModifiers: modifier,
-    };
-  }, [combineWeekendModifiers]);
-
-  const activeRoster = useMemo(() => roster.filter(d => d.status === 'Active').map(d => applyWeekendModifiersToDriver(d)), [roster, applyWeekendModifiersToDriver]);
-
-  const { standings, awardPoints, resetStandings, hydrateStandings } = useStandings(activeRoster);
-  const { standings: constructorStandings, awardConstructorPoints, resetConstructorStandings, hydrateConstructorStandings } = useConstructorStandings(activeRoster);
-  const { history: seasonHistory, archiveSeason, clearHistory, hydrateSeasonHistory } = useSeasonHistory();
-  const { history: raceHistory, recordWinner, clearRaceHistory, hydrateRaceHistory } = useRaceHistory();
-  const raceIntervalRef = useRef<number | null>(null);
-  const highlightTimeoutRef = useRef<number | null>(null);
-
   const handleSelectTeam = (teamName: string) => setSelectedTeam(teamName);
   const handleCloseModal = () => setSelectedTeam(null);
 
@@ -1430,6 +1456,27 @@ const App: React.FC = () => {
       setLoadCodeValue('');
     }
   }, [loadCodeValue, saveSystemSetters]);
+
+  const handleLoadFromCookie = useCallback(() => {
+    const result = loadSaveFromCookie(saveSystemSetters);
+    setLoadStatusMessage(result.message);
+    if (result.success) {
+      if (raceIntervalRef.current) {
+        clearInterval(raceIntervalRef.current);
+        raceIntervalRef.current = null;
+      }
+      setShowLoadModal(false);
+      setLoadCodeValue('');
+    }
+  }, [saveSystemSetters]);
+
+  useEffect(() => {
+    const result = loadSaveFromCookie(saveSystemSetters);
+    if (result.success) {
+      setAutoSaveMessage(result.message);
+      setLastAutoSaveAt(new Date().toLocaleTimeString());
+    }
+  }, [saveSystemSetters]);
   
   const selectedTeamData = useMemo(() => {
     if (!selectedTeam) return null;
@@ -2285,21 +2332,56 @@ const App: React.FC = () => {
   }, [formatEventMessage]);
 
   const runSimulationLap = useCallback(() => {
-    const { nextDrivers, nextRaceState, lapEvents } = calculateNextStates(
-      drivers,
-      raceState,
-      personnel,
-      fastestLap,
-      addLog,
-      setFastestLap,
-      formatEventMessage,
-      raceHistory
-    );
-    setDrivers(nextDrivers);
-    setRaceState(nextRaceState);
-    setRaceLapEvents(prev => [...prev, ...lapEvents]);
-    handleCommentaryUpdate(lapEvents);
-  }, [drivers, raceState, personnel, fastestLap, addLog, formatEventMessage, setFastestLap, raceHistory, handleCommentaryUpdate]);
+    try {
+      const fallbackTrack = seasonTracks[currentRaceIndex] || FULL_SEASON_TRACKS[0];
+      const hydratedRaceState = hydrateRaceState(raceStateRef.current, fallbackTrack);
+
+      raceStateRef.current = hydratedRaceState;
+
+      if (hydratedRaceState.lap > hydratedRaceState.totalLaps) {
+        setGamePhase(GamePhase.FINISHED);
+        return;
+      }
+
+      const { nextDrivers, nextRaceState, lapEvents } = calculateNextStates(
+        driversRef.current,
+        hydratedRaceState,
+        personnelRef.current,
+        fastestLapRef.current,
+        addLog,
+        setFastestLap,
+        formatEventMessage,
+        raceHistory
+      );
+      setDrivers(nextDrivers);
+      setRaceState(nextRaceState);
+      setRaceLapEvents(prev => [...prev, ...lapEvents]);
+      handleCommentaryUpdate(lapEvents);
+    } catch (error) {
+      console.error('Race simulation failed, attempting recovery', error);
+      const fallbackTrack = seasonTracks[currentRaceIndex] || FULL_SEASON_TRACKS[0];
+      const recoveredState = hydrateRaceState({
+        ...raceStateRef.current,
+        lap: (raceStateRef.current.lap ?? 0) + 1,
+      }, fallbackTrack);
+
+      const recoveredDrivers = driversRef.current.map(driver =>
+        sanitizeLapTiming(sanitizeDriverState(driver, recoveredState.track.baseLapTime, recoveredState.track), recoveredState.track.baseLapTime, recoveredState.track)
+      );
+
+      setDrivers(recoveredDrivers);
+      setRaceState(recoveredState);
+      addLog('Race Control resets timing systems after a glitch. Race will continue.');
+    }
+  }, [
+    addLog,
+    currentRaceIndex,
+    formatEventMessage,
+    handleCommentaryUpdate,
+    raceHistory,
+    seasonTracks,
+    setFastestLap,
+  ]);
 
   const calculateRaceRatings = (finalDrivers: Driver[]): Driver[] => {
       const teammateMap = new Map<string, number[]>();
@@ -2483,19 +2565,34 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    if (gamePhase === GamePhase.RACING && raceState.lap <= raceState.totalLaps) {
-      const baseLapDuration = Math.max(500, 2000 - (drivers.filter(d => d.battle).length * 200));
-      const lapDuration = baseLapDuration / simSpeed;
-      raceIntervalRef.current = window.setTimeout(runSimulationLap, lapDuration);
-    } else if (raceState.lap > raceState.totalLaps && gamePhase === GamePhase.RACING) {
-      if (raceIntervalRef.current) clearTimeout(raceIntervalRef.current);
-      setGamePhase(GamePhase.FINISHED);
+    if (raceIntervalRef.current) {
+      clearInterval(raceIntervalRef.current);
+      raceIntervalRef.current = null;
     }
-    return () => { 
-        if (raceIntervalRef.current) clearTimeout(raceIntervalRef.current); 
-        if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+
+    if (gamePhase !== GamePhase.RACING) return;
+
+    const scheduleInterval = () => {
+      const baseLapDuration = Math.max(500, 2000 - (driversRef.current.filter(d => d.battle).length * 200));
+      const lapDuration = baseLapDuration / simSpeed;
+
+      raceIntervalRef.current = window.setInterval(() => {
+        if (raceStateRef.current.lap > raceStateRef.current.totalLaps) {
+          if (raceIntervalRef.current) clearInterval(raceIntervalRef.current);
+          setGamePhase(GamePhase.FINISHED);
+          return;
+        }
+        runSimulationLap();
+      }, lapDuration);
     };
-  }, [gamePhase, raceState.lap, raceState.totalLaps, runSimulationLap, simSpeed, drivers]);
+
+    scheduleInterval();
+
+    return () => {
+      if (raceIntervalRef.current) clearInterval(raceIntervalRef.current);
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+    };
+  }, [gamePhase, runSimulationLap, simSpeed]);
 
   useEffect(() => {
     if (gamePhase === GamePhase.FINISHED && drivers.length > 0 && !drivers[0].raceRating) {
@@ -2685,7 +2782,16 @@ const App: React.FC = () => {
               >
                 Load Game (Paste Code)
               </button>
+              <button
+                onClick={handleLoadFromCookie}
+                className="py-2 px-4 bg-amber-700 hover:bg-amber-600 text-white font-semibold rounded-lg transition duration-300"
+              >
+                Load Auto-Save (Cookie)
+              </button>
             </div>
+            {autoSaveMessage && (
+              <p className="mt-2 text-sm text-gray-300">{autoSaveMessage}{lastAutoSaveAt ? ` • Last auto-save: ${lastAutoSaveAt}` : ''}</p>
+            )}
         </header>
       )}
       {renderContent()}
