@@ -170,6 +170,32 @@ export const simulateRaceLap = (
     nextRaceState.lap = 1;
   }
 
+  const redFlagActive = nextRaceState.flag === RaceFlag.Red && nextRaceState.flagLaps > 0;
+
+  if (redFlagActive) {
+    nextRaceState.flagLaps = Math.max(0, nextRaceState.flagLaps - 1);
+    lapEvents.unshift({ type: 'RED_FLAG', driverName: 'Race Control', data: { status: 'Cars queued' } });
+    nextDrivers = nextDrivers.map((driver) => ({
+      ...driver,
+      lapTime: safeClampNumber(driver.lapTime, nextRaceState.track.baseLapTime, 40, 400),
+      pittedThisLap: false,
+    }));
+
+    if (nextRaceState.flagLaps === 0) {
+      nextRaceState.flag = RaceFlag.Green;
+      nextDrivers.forEach((d) => (d.pittedUnderSCThisPeriod = false));
+      addLog('Race Control: red flag cleared, racing will resume.');
+    } else {
+      addLog('Race Control: red flag in effect — cars lined up on the grid.');
+    }
+
+    return {
+      nextDrivers,
+      nextRaceState,
+      lapEvents,
+    };
+  }
+
   const incidentData = simulateLapIncidents(nextDrivers, nextRaceState.track, weather, nextRaceState.trackCondition, nextRaceState.lap);
   nextDrivers = incidentData.updatedDrivers;
   lapEvents.push(...incidentData.lapEvents);

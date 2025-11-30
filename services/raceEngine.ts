@@ -35,8 +35,27 @@ const sanitizeWeekendModifier = (modifier?: WeekendModifier | null): WeekendModi
 export const sanitizeStrategy = (strategy: Strategy | undefined, track: Track, fallbackTyre: TyreCompound): Strategy => {
   const safeStrategy = strategy || { startingTyre: fallbackTyre, pitStops: [] };
 
-  const startingTyre = safeStrategy.startingTyre || fallbackTyre;
+  const totalLaps = Math.max(10, track.laps || 50);
+  const startingTyre = safeStrategy.startingTyre || (totalLaps <= 35 ? TyreCompound.Soft : TyreCompound.Medium);
   const pitStops = Array.isArray(safeStrategy.pitStops) ? safeStrategy.pitStops : [];
+
+  const buildDefaultPlan = (): { lap: number; tyre: TyreCompound }[] => {
+    if (totalLaps >= 45) {
+      return [
+        { lap: Math.floor(totalLaps / 3), tyre: TyreCompound.Medium },
+        { lap: Math.floor((2 * totalLaps) / 3), tyre: TyreCompound.Hard },
+      ];
+    }
+    if (totalLaps >= 30) {
+      return [{ lap: Math.floor(totalLaps / 2), tyre: TyreCompound.Hard }];
+    }
+    return [
+      {
+        lap: Math.max(1, Math.floor(totalLaps * 0.55)),
+        tyre: fallbackTyre === TyreCompound.Soft ? TyreCompound.Medium : fallbackTyre,
+      },
+    ];
+  };
 
   const sanitizedStops = pitStops
     .map(stop => ({
@@ -44,6 +63,10 @@ export const sanitizeStrategy = (strategy: Strategy | undefined, track: Track, f
       tyre: stop?.tyre || fallbackTyre,
     }))
     .sort((a, b) => a.lap - b.lap);
+
+  if (sanitizedStops.length === 0) {
+    sanitizedStops.push(...buildDefaultPlan());
+  }
 
   for (let i = 1; i < sanitizedStops.length; i++) {
     const minLap = sanitizedStops[i - 1].lap + 2;
