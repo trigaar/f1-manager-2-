@@ -68,9 +68,9 @@ const formatAttributeName = (attr: string) => {
 }
 
 const RadarChart: React.FC<{ attributes: (keyof DriverSkills)[]; values: number[] }> = ({ attributes, values }) => {
-    const size = 260;
+    const size = 320;
     const center = size / 2;
-    const radius = 95;
+    const radius = 120;
 
     const points = attributes.map((_, idx) => {
         const angle = (2 * Math.PI * idx / attributes.length) - Math.PI / 2;
@@ -84,7 +84,7 @@ const RadarChart: React.FC<{ attributes: (keyof DriverSkills)[]; values: number[
     const gridRings = [0.25, 0.5, 0.75, 1];
 
     return (
-        <svg viewBox={`0 0 ${size} ${size}`} className="w-full h-64">
+        <svg viewBox={`0 0 ${size} ${size}`} className="w-full max-w-[380px] mx-auto h-auto">
             <defs>
                 <radialGradient id="radarGlow" cx="50%" cy="50%" r="50%">
                     <stop offset="0%" stopColor="rgba(56,189,248,0.15)" />
@@ -258,7 +258,7 @@ const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ isOpen, onClose, team
                     const visibleSkillAttributes = showAdvanced ? DRIVER_SKILL_ORDER : RADAR_ATTRIBUTES;
 
                     return (
-                        <div key={driver.id} className="bg-gray-900/60 p-5 rounded-xl border border-gray-800 shadow-xl space-y-4">
+                        <div key={driver.id} className="bg-gray-900/60 p-5 rounded-xl border border-gray-800 shadow-xl space-y-4 min-w-0">
                             <div className="flex items-start justify-between gap-3">
                                 <div>
                                     <p className="font-bold text-xl text-white">{driver.name} <span className="text-sm text-gray-400 font-normal">({driver.age})</span></p>
@@ -295,8 +295,8 @@ const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ isOpen, onClose, team
                                 )}
                             </div>
 
-                            <div className="grid lg:grid-cols-2 gap-4 items-start">
-                                <div className="bg-gray-900/60 rounded-lg p-3 border border-gray-800/80">
+                            <div className="grid grid-cols-1 xl:grid-cols-5 gap-4 items-start">
+                                <div className="bg-gray-900/60 rounded-lg p-3 border border-gray-800/80 xl:col-span-3">
                                     {chartMode === 'bar' ? (
                                         <div className="grid sm:grid-cols-2 gap-3">
                                             {visibleSkillAttributes.map((key) => {
@@ -315,7 +315,7 @@ const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ isOpen, onClose, team
                                             })}
                                         </div>
                                     ) : (
-                                        <div className="space-y-2">
+                                        <div className="space-y-3">
                                             <RadarChart attributes={numericSkillAttributes} values={skillValues} />
                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                                                 {numericSkillAttributes.map((attr, idx) => (
@@ -329,7 +329,7 @@ const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ isOpen, onClose, team
                                         </div>
                                     )}
                                 </div>
-                                <div className="space-y-3">
+                                <div className="space-y-3 xl:col-span-2">
                                     <div className="bg-gray-900/70 border border-gray-800 rounded-lg p-3">
                                         <p className="text-xs text-gray-400 uppercase mb-1">Car Link</p>
                                         <div className="flex justify-between gap-3 items-start">
