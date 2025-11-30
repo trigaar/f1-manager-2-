@@ -539,6 +539,7 @@ export interface Track {
 }
 
 export enum GamePhase {
+  START_MENU = 'START_MENU',
   TEAM_SELECTION = 'TEAM_SELECTION',
   SETUP = 'SETUP',
   PRACTICE = 'PRACTICE',
