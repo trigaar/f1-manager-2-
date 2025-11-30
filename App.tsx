@@ -29,6 +29,7 @@ import { buildInitialRaceState, calculateNextSeasonTracks, createNewRookies, upd
 import { calculateCarLinkImpact } from './services/carLinkService';
 import { rollPreRaceEventForTeam } from './services/preRaceEventService';
 import { applyLoadedGameState, GameSaveState, generateSaveCode, getCurrentGameState, loadFromSaveCode, SaveStateSetters } from './services/saveSystem';
+import { computeSafeLapTime, safeClampNumber } from './utils/lapUtils';
 import SetupScreen from './components/SetupScreen';
 import Leaderboard from './components/Leaderboard';
 import RaceControlPanel from './components/RaceControlPanel';
@@ -840,8 +841,28 @@ const calculateNextStates = (
                 raceCraftPenalty *= 0.8;
             }
             baseLapTime += raceCraftPenalty + lapPerformanceModifier;
-            const safeLapTime = clampNumber(parseFloat(baseLapTime.toFixed(3)), baseLapReference, 40, 400);
-            driver.lapTime = safeLapTime;
+
+            try {
+                const flagMultiplier = nextRaceState.flag === RaceFlag.SafetyCar ? 1.5
+                    : nextRaceState.flag === RaceFlag.VirtualSafetyCar ? 1.3 : 1.0;
+                const weatherMultiplier = (newWeather === 'Extreme Rain') ? 1.15 : 1.0;
+                const modifiers = {
+                    weatherMultiplier,
+                    flagMultiplier,
+                    raceCraftPenalty,
+                    lapPerformanceModifier,
+                    baseLapReference,
+                };
+                const rawBaseLapTime = baseLapTime;
+                console.debug('[LAPTIME DEBUG] before computeSafeLapTime', { driver: driver.name, rawBaseLapTime, modifiers });
+                const safeLapTime = computeSafeLapTime(rawBaseLapTime, modifiers);
+                console.debug('[LAPTIME DEBUG] computed safeLapTime', { driver: driver.name, safeLapTime });
+                driver.lapTime = safeLapTime;
+            } catch (err) {
+                console.error('Lap time computation failed, using fallback lap time', err);
+                driver.lapTime = buildFallbackLapTime(driver, baseLapReference, safeTrack);
+            }
+
             if (driver.raceStatus === 'Racing' && nextRaceState.flag === RaceFlag.Green && (!fastestLap || driver.lapTime < fastestLap.time)) {
                 setFastestLap({ driverName: driver.name, time: driver.lapTime });
                 lapEvents.push({ type: 'FASTEST_LAP', driverName: driver.name, data: { time: driver.lapTime }});
