@@ -395,6 +395,8 @@ const calculateNextStates = (
 
     nextRaceState = {
         ...nextRaceState,
+        lap: Math.max(0, nextRaceState.lap),
+        totalLaps: safeTotalLaps,
         track: safeTrack,
         weather: safeWeather,
         flag: nextRaceState.flag || RaceFlag.Green,
@@ -868,7 +870,7 @@ const calculateNextStates = (
         }
 
         const lapTimeApplied = Number.isFinite(driver.lapTime) && driver.lapTime > 0
-            ? safeClampNumber(driver.lapTime, baseLapReference, 40, 400)
+            ? clampNumber(driver.lapTime, baseLapReference, 40, 400)
             : buildFallbackLapTime(driver, baseLapReference, safeTrack);
 
         const startingTotalTime = Number.isFinite(driver.totalRaceTime)
@@ -876,7 +878,7 @@ const calculateNextStates = (
             : lapTimeApplied;
 
         driver.lapTime = lapTimeApplied;
-        driver.totalRaceTime = safeClampNumber(startingTotalTime + lapTimeApplied, lapTimeApplied, 0, Number.MAX_SAFE_INTEGER);
+        driver.totalRaceTime = clampNumber(startingTotalTime + lapTimeApplied, lapTimeApplied, 0, Number.MAX_SAFE_INTEGER);
         let fuelConsumption = 1.8;
         if (driver.paceMode === 'Pushing') fuelConsumption *= 1.1;
         if (driver.paceMode === 'Conserving') fuelConsumption *= 0.85;
