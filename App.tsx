@@ -1,7 +1,7 @@
 
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { RaceState, Driver, Track, GamePhase, TyreCompound, LapEvent, RaceFlag, InitialDriver, QualifyingResult, OffSeasonPhase, TeamFinances, TeamPersonnel, PersonnelChangeEvent, DriverMarketEvent, Car, CarDevelopmentResult, DriverStanding, RegulationEvent, RookieDriver, Tyre, DriverProgressionEvent, RaceHistory, LapEventType, ResourceAllocationEvent, PracticeResult, AiRaceSummary, AiSeasonReview, UpcomingRaceQuote, TeamDebrief, DriverDebrief, PlayerCarDev, AffiliateDriver, AffiliateChangeEvent, ConstructorStanding, ShortlistDriver, HeadquartersEvent, HeadquartersEventEffect, HeadquartersEventResolution, WeekendModifier } from './types';
+import { RaceState, Driver, Track, GamePhase, TyreCompound, LapEvent, RaceFlag, InitialDriver, QualifyingResult, OffSeasonPhase, TeamFinances, TeamPersonnel, PersonnelChangeEvent, DriverMarketEvent, Car, CarDevelopmentResult, DriverStanding, RegulationEvent, RookieDriver, Tyre, DriverProgressionEvent, RaceHistory, LapEventType, ResourceAllocationEvent, PracticeResult, AiRaceSummary, AiSeasonReview, UpcomingRaceQuote, TeamDebrief, DriverDebrief, PlayerCarDev, AffiliateDriver, AffiliateChangeEvent, ConstructorStanding, ShortlistDriver, HeadquartersEvent, HeadquartersEventEffect, HeadquartersEventResolution, WeekendModifier, Strategy } from './types';
 import { FULL_SEASON_TRACKS, SHORT_SEASON_TRACKS, INITIAL_DRIVERS, TYRE_LIFE, INITIAL_PERSONNEL, CARS, TEAM_COLORS, ROOKIE_POOL, TYRE_PROPERTIES, TIRE_BLANKET_TEMP, AFFILIATE_CANDIDATES } from './constants';
 import { pickRandomHeadquartersEvent } from './constants/headquartersEvents';
 import { generateLocalStrategy } from './services/strategyService';
@@ -222,6 +222,29 @@ const clampNumber = (value: number, fallback: number, min?: number, max?: number
     return value;
 };
 
+const sanitizeStrategy = (strategy: Strategy | undefined, track: Track, fallbackTyre: TyreCompound): Strategy => {
+    const safeStrategy = strategy || { startingTyre: fallbackTyre, pitStops: [] };
+
+    const startingTyre = safeStrategy.startingTyre || fallbackTyre;
+    const pitStops = Array.isArray(safeStrategy.pitStops) ? safeStrategy.pitStops : [];
+
+    const sanitizedStops = pitStops
+        .map(stop => ({
+            lap: clampNumber(stop?.lap, Math.floor(track.laps / 2), 1, Math.max(1, track.laps - 1)),
+            tyre: stop?.tyre || fallbackTyre,
+        }))
+        .sort((a, b) => a.lap - b.lap);
+
+    for (let i = 1; i < sanitizedStops.length; i++) {
+        const minLap = sanitizedStops[i - 1].lap + 2;
+        if (sanitizedStops[i].lap < minLap) {
+            sanitizedStops[i].lap = minLap;
+        }
+    }
+
+    return { startingTyre, pitStops: sanitizedStops };
+};
+
 const sanitizeTrackState = (track: Track): Track => {
     return {
         ...track,
@@ -238,6 +261,7 @@ const sanitizeTrackState = (track: Track): Track => {
 
 const sanitizeDriverState = (driver: Driver, baseLapRef: number, track: Track): Driver => {
     const fallbackTyre = driver.currentTyres?.compound || TyreCompound.Medium;
+    const sanitizedStrategy = sanitizeStrategy(driver.strategy, track, fallbackTyre);
     const tyre = driver.currentTyres || {
         compound: fallbackTyre,
         wear: 0,
@@ -259,6 +283,12 @@ const sanitizeDriverState = (driver: Driver, baseLapRef: number, track: Track): 
         gapToLeader: clampNumber(driver.gapToLeader ?? 0, 0, 0, Number.MAX_SAFE_INTEGER),
         lapTime: clampNumber(driver.lapTime ?? baseLapRef, baseLapRef, 40, Number.MAX_SAFE_INTEGER),
         fuelLoad: clampNumber(driver.fuelLoad ?? 105, 105, 0, 120),
+        pitStops: clampNumber(driver.pitStops ?? 0, 0, 0, 20),
+        pittedThisLap: !!driver.pittedThisLap,
+        pittedUnderSCThisPeriod: !!driver.pittedUnderSCThisPeriod,
+        hasUsedWetTyre: !!driver.hasUsedWetTyre,
+        paceMode: driver.paceMode || 'Standard',
+        ersCharge: clampNumber(driver.ersCharge ?? 100, 100, 0, 100),
         currentTyres: {
             ...tyre,
             wear: safeWear,
@@ -268,7 +298,9 @@ const sanitizeDriverState = (driver: Driver, baseLapRef: number, track: Track): 
         },
         penalties: driver.penalties || [],
         compoundsUsed: driver.compoundsUsed?.length ? driver.compoundsUsed : [fallbackTyre],
+        strategy: sanitizedStrategy,
         raceStatus: driver.raceStatus || 'Racing',
+        battle: driver.battle || null,
     };
 };
 
