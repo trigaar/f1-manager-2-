@@ -60,7 +60,7 @@ The core loop progresses through clearly defined phases for each grand prix week
 
 ## Project structure
 
-- **`App.tsx`** – monolithic state container that coordinates every phase (weekend setup, sessions, AI summaries, and the off-season) and renders the appropriate screen component per phase.
+- **`App.tsx`** – monolithic state container that coordinates every phase (weekend setup, sessions, AI summaries, and the off-season) and renders the appropriate screen component per phase. A thin passthrough also lives at `src/App.tsx` so existing imports on older branches continue to work when merging.
 - **`components/`** – React screens for each phase: setup, practice/qualifying, race overlays, AI summaries, and all off-season modules (financials, staffing, driver market, regulation changes, car development, etc.).
 - **`services/`** – pure logic modules for strategy, incidents, qualifying, weather, finances, personnel, driver market, car development, progression, and AI text generation.
 - **`constants/`** – static data for tracks, tyres, drivers, personnel, cars, and palette values.
