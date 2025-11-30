@@ -848,8 +848,15 @@ const calculateNextStates = (
             }
         }
 
-        const lapTimeApplied = clampNumber(driver.lapTime, baseLapReference, 40, 400);
-        const startingTotalTime = Number.isFinite(driver.totalRaceTime) ? driver.totalRaceTime : lapTimeApplied;
+        const lapTimeApplied = Number.isFinite(driver.lapTime) && driver.lapTime > 0
+            ? clampNumber(driver.lapTime, baseLapReference, 40, 400)
+            : buildFallbackLapTime(driver, baseLapReference, safeTrack);
+
+        const startingTotalTime = Number.isFinite(driver.totalRaceTime)
+            ? driver.totalRaceTime
+            : lapTimeApplied;
+
+        driver.lapTime = lapTimeApplied;
         driver.totalRaceTime = clampNumber(startingTotalTime + lapTimeApplied, lapTimeApplied, 0, Number.MAX_SAFE_INTEGER);
         let fuelConsumption = 1.8;
         if (driver.paceMode === 'Pushing') fuelConsumption *= 1.1;
