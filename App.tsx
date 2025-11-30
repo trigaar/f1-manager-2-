@@ -28,7 +28,7 @@ import { runAffiliateProgression, runAIAffiliateSignings } from './services/affi
 import { buildInitialRaceState, calculateNextSeasonTracks, createNewRookies, updateRosterForNewSeason } from './services/seasonResetService';
 import { calculateCarLinkImpact } from './services/carLinkService';
 import { rollPreRaceEventForTeam } from './services/preRaceEventService';
-import { applyLoadedGameState, clearAutoSave, GameSaveState, generateSaveCode, getCurrentGameState, getCookieSaveMetadata, loadFromSaveCode, loadSaveFromCookie, persistSaveToCookie, SaveStateSetters } from './services/saveSystem';
+import { applyLoadedGameState, GameSaveState, generateSaveCode, getCurrentGameState, getCookieSaveMetadata, loadFromSaveCode, loadSaveFromCookie, persistSaveToCookie, SaveStateSetters } from './services/saveSystem';
 import { computeSafeLapTime, safeClampNumber } from './utils/lapUtils';
 import { clampNumber, sanitizeTrackState, sanitizeDriverState, buildFallbackLapTime, sanitizeLapTiming, hydrateRaceState } from './services/raceEngine';
 import { simulateRaceLap } from './services/raceDayEngine';
@@ -254,6 +254,8 @@ const calculateNextStates = (
 
     nextRaceState = {
         ...nextRaceState,
+        lap: Math.max(0, nextRaceState.lap),
+        totalLaps: safeTotalLaps,
         track: safeTrack,
         weather: safeWeather,
         flag: nextRaceState.flag || RaceFlag.Green,
@@ -1491,6 +1493,15 @@ const App: React.FC = () => {
       setHasAutoSave(false);
     }
   }, [saveSystemSetters]);
+
+  const handleStartNewGame = useCallback(() => {
+    setGamePhase(GamePhase.INTRO);
+    setShowLoadModal(false);
+    setShowSaveMenu(false);
+    setLoadStatusMessage(null);
+    setAutoSaveMessage(null);
+    setManualCookieSaveStatus(null);
+  }, []);
 
   const handleBeginTeamSelection = useCallback(() => {
     setGamePhase(GamePhase.TEAM_SELECTION);

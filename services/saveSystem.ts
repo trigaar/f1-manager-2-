@@ -200,11 +200,6 @@ const setCookie = (name: string, value: string, maxAgeSeconds = DEFAULT_SAVE_COO
   document.cookie = `${name}=${encodeURIComponent(value)}; max-age=${maxAgeSeconds}; path=/; SameSite=Lax`;
 };
 
-const clearCookie = (name: string) => {
-  if (typeof document === 'undefined') return;
-  document.cookie = `${name}=; Max-Age=0; path=/; SameSite=Lax`;
-};
-
 const readCookie = (name: string): string | null => {
   if (typeof document === 'undefined') return null;
   const cookieString = document.cookie;
@@ -259,21 +254,6 @@ const readAutoSavePayload = (
   }
 
   return null;
-};
-
-export const clearAutoSave = (
-  cookieName: string = DEFAULT_SAVE_COOKIE_NAME,
-  storageKey: string = DEFAULT_SAVE_STORAGE_KEY,
-) => {
-  clearCookie(cookieName);
-
-  if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
-    try {
-      window.localStorage.removeItem(storageKey);
-    } catch (error) {
-      console.warn('Unable to remove auto-save payload from localStorage', error);
-    }
-  }
 };
 
 export const getCookieSaveMetadata = (
