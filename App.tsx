@@ -262,6 +262,42 @@ const sanitizeTrackState = (track: Track): Track => {
 const sanitizeDriverState = (driver: Driver, baseLapRef: number, track: Track): Driver => {
     const fallbackTyre = driver.currentTyres?.compound || TyreCompound.Medium;
     const sanitizedStrategy = sanitizeStrategy(driver.strategy, track, fallbackTyre);
+    const rawSkills = driver.driverSkills || ({} as Driver['driverSkills']);
+    const safeDriverSkills = {
+        overall: clampNumber(rawSkills.overall ?? 80, 80, 1, 100),
+        qualifyingPace: clampNumber(rawSkills.qualifyingPace ?? 80, 80, 1, 100),
+        raceCraft: clampNumber(rawSkills.raceCraft ?? 80, 80, 1, 100),
+        tyreManagement: clampNumber(rawSkills.tyreManagement ?? 80, 80, 1, 100),
+        consistency: clampNumber(rawSkills.consistency ?? 80, 80, 1, 100),
+        wetWeatherSkill: clampNumber(rawSkills.wetWeatherSkill ?? 80, 80, 1, 100),
+        aggressionIndex: clampNumber(rawSkills.aggressionIndex ?? 50, 50, 1, 100),
+        incidentProneness: clampNumber(rawSkills.incidentProneness ?? 15, 15, 1, 100),
+        loyalty: clampNumber(rawSkills.loyalty ?? 50, 50, 1, 100),
+        potential: clampNumber(rawSkills.potential ?? 80, 80, 1, 100),
+        reputation: clampNumber(rawSkills.reputation ?? 50, 50, 1, 100),
+        specialties: Array.isArray(rawSkills.specialties) ? rawSkills.specialties : [],
+        trait: rawSkills.trait,
+    } as Driver['driverSkills'];
+
+    const rawCar = driver.car || ({} as Driver['car']);
+    const safeCar: Car = {
+        teamName: rawCar.teamName || 'Unknown',
+        overallPace: clampNumber(rawCar.overallPace ?? 80, 80, 40, 120),
+        highSpeedCornering: clampNumber(rawCar.highSpeedCornering ?? 80, 80, 40, 120),
+        mediumSpeedCornering: clampNumber(rawCar.mediumSpeedCornering ?? 80, 80, 40, 120),
+        lowSpeedCornering: clampNumber(rawCar.lowSpeedCornering ?? 80, 80, 40, 120),
+        powerSensitivity: clampNumber(rawCar.powerSensitivity ?? 80, 80, 40, 120),
+        reliability: clampNumber(rawCar.reliability ?? 80, 80, 1, 100),
+        tyreWearFactor: clampNumber(rawCar.tyreWearFactor ?? 80, 80, 40, 120),
+        isLST: rawCar.isLST ?? false,
+    };
+
+    const rawCarLink = driver.carLink || ({} as Driver['carLink']);
+    const safeCarLink = {
+        compatibility: clampNumber(rawCarLink.compatibility ?? 50, 50, 0, 100),
+        adaptation: clampNumber(rawCarLink.adaptation ?? 50, 50, 0, 100),
+        notes: rawCarLink.notes,
+    } as Driver['carLink'];
     const tyre = driver.currentTyres || {
         compound: fallbackTyre,
         wear: 0,
@@ -276,6 +312,9 @@ const sanitizeDriverState = (driver: Driver, baseLapRef: number, track: Track): 
 
     return {
         ...driver,
+        driverSkills: safeDriverSkills,
+        car: safeCar,
+        carLink: safeCarLink,
         form: safeForm,
         position: Math.max(1, driver.position || 1),
         startingPosition: Math.max(1, driver.startingPosition || 1),
@@ -304,8 +343,24 @@ const sanitizeDriverState = (driver: Driver, baseLapRef: number, track: Track): 
     };
 };
 
-const sanitizeLapTiming = (driver: Driver, baseLapRef: number): Driver => {
-    const safeLapTime = clampNumber(driver.lapTime ?? baseLapRef, baseLapRef, 40, 400);
+const buildFallbackLapTime = (driver: Driver, baseLapRef: number, track: Track): number => {
+    const paceAnchor = clampNumber(driver.driverSkills?.overall ?? 80, 80, 40, 120);
+    const carAnchor = clampNumber(driver.car?.overallPace ?? 75, 75, 40, 120);
+    const tyreWear = clampNumber(driver.currentTyres?.wear ?? 0, 0, 0, 100);
+
+    const driverDelta = (100 - paceAnchor) * 0.045;
+    const carDelta = (100 - carAnchor) * 0.025;
+    const tyreDrag = tyreWear * 0.03;
+    const trackStretch = clampNumber(track.tyreStress ?? 3, 3, 1, 6) * 0.4;
+    const randomness = (Math.random() - 0.5) * 2.5;
+
+    const estimated = baseLapRef + driverDelta + carDelta + tyreDrag + trackStretch + randomness;
+    return clampNumber(estimated, baseLapRef, 40, 400);
+};
+
+const sanitizeLapTiming = (driver: Driver, baseLapRef: number, track: Track): Driver => {
+    const rawLapTime = Number.isFinite(driver.lapTime) && driver.lapTime > 0 ? driver.lapTime : buildFallbackLapTime(driver, baseLapRef, track);
+    const safeLapTime = clampNumber(rawLapTime, baseLapRef, 40, 400);
     const safeTotalTime = clampNumber(driver.totalRaceTime ?? safeLapTime, safeLapTime, 0, Number.MAX_SAFE_INTEGER);
     const safeGap = Number.isFinite(driver.gapToLeader) && driver.gapToLeader >= 0 ? driver.gapToLeader : 0;
 
@@ -1040,7 +1095,7 @@ const calculateNextStates = (
         }
     }
     
-    nextDrivers = nextDrivers.map(driver => sanitizeLapTiming(driver, baseLapReference));
+    nextDrivers = nextDrivers.map(driver => sanitizeLapTiming(driver, baseLapReference, safeTrack));
 
     nextDrivers.sort(sortDrivers);
     const leaderTime = nextDrivers.find(d => d.raceStatus !== 'Crashed' && d.raceStatus !== 'DNF')?.totalRaceTime || 0;
