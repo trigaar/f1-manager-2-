@@ -1063,6 +1063,7 @@ const App: React.FC = () => {
   const [showGarageScreen, setShowGarageScreen] = useState<boolean>(false);
   const [showHqScreen, setShowHqScreen] = useState<boolean>(false);
   const [showHowToPlay, setShowHowToPlay] = useState<boolean>(false);
+  const [showSaveMenu, setShowSaveMenu] = useState<boolean>(false);
   const [showSaveModal, setShowSaveModal] = useState<boolean>(false);
   const [showLoadModal, setShowLoadModal] = useState<boolean>(false);
   const [saveCodeValue, setSaveCodeValue] = useState<string>('');
@@ -1072,6 +1073,7 @@ const App: React.FC = () => {
   const [autoSaveMessage, setAutoSaveMessage] = useState<string | null>(null);
   const [lastAutoSaveAt, setLastAutoSaveAt] = useState<string | null>(null);
   const [hasAutoSave, setHasAutoSave] = useState<boolean>(false);
+  const [manualCookieSaveStatus, setManualCookieSaveStatus] = useState<string | null>(null);
   const [hqEvent, setHqEvent] = useState<HeadquartersEvent | null>(null);
   const [hqEventRaceKey, setHqEventRaceKey] = useState<string | null>(null);
   const [pendingHqImpact, setPendingHqImpact] = useState<HeadquartersEventResolution | null>(null);
@@ -2818,24 +2820,18 @@ const App: React.FC = () => {
             <h1 className="text-4xl font-bold text-red-500 tracking-wider">F1 Strategy Simulator</h1>
             <p className="text-gray-400">{gamePhase !== GamePhase.POST_SEASON ? `${season} Season - Race ${currentRaceIndex + 1} of ${seasonTracks.length}` : ''}</p>
             {playerTeam && <p className="text-lg font-semibold text-teal-400 mt-1">Managing: {playerTeam}</p>}
-            <button
-              onClick={() => setShowHowToPlay(true)}
-              className="absolute top-0 right-0 py-2 px-4 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition duration-300"
-            >
-              How to Play
-            </button>
-            <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+            <div className="absolute top-0 right-0 flex gap-2">
               <button
-                onClick={handleGenerateSave}
+                onClick={() => setShowSaveMenu(true)}
                 className="py-2 px-4 bg-blue-700 hover:bg-blue-600 text-white font-semibold rounded-lg transition duration-300"
               >
-                Save Game (Generate Code)
+                Save & Load
               </button>
               <button
-                onClick={() => { setShowLoadModal(true); setLoadStatusMessage(null); }}
-                className="py-2 px-4 bg-green-700 hover:bg-green-600 text-white font-semibold rounded-lg transition duration-300"
+                onClick={() => setShowHowToPlay(true)}
+                className="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition duration-300"
               >
-                Load Game (Paste Code)
+                How to Play
               </button>
               <button
                 onClick={handleLoadFromCookie}
@@ -2850,6 +2846,56 @@ const App: React.FC = () => {
         </header>
       )}
       {renderContent()}
+      {showSaveMenu && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 rounded-lg p-6 w-full max-w-xl shadow-xl relative space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-white">Save & Load</h2>
+              <button
+                onClick={() => setShowSaveMenu(false)}
+                className="text-gray-400 hover:text-white"
+                aria-label="Close save menu"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="text-gray-300 text-sm">Generate manual codes, load from a pasted code, or write/read the auto-save cookie.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <button
+                onClick={() => { setShowSaveMenu(false); handleGenerateSave(); }}
+                className="py-3 px-4 bg-blue-700 hover:bg-blue-600 text-white font-semibold rounded-lg transition duration-300"
+              >
+                Save Game (Generate Code)
+              </button>
+              <button
+                onClick={() => { setShowSaveMenu(false); setShowLoadModal(true); setLoadStatusMessage(null); }}
+                className="py-3 px-4 bg-green-700 hover:bg-green-600 text-white font-semibold rounded-lg transition duration-300"
+              >
+                Load Game (Paste Code)
+              </button>
+              <button
+                onClick={() => handleManualCookieSave()}
+                className="py-3 px-4 bg-amber-700 hover:bg-amber-600 text-white font-semibold rounded-lg transition duration-300"
+              >
+                Save to Auto-Save Cookie
+              </button>
+              <button
+                onClick={handleLoadFromCookie}
+                disabled={!hasAutoSave}
+                className={`py-3 px-4 font-semibold rounded-lg transition duration-300 ${hasAutoSave ? 'bg-emerald-700 hover:bg-emerald-600 text-white' : 'bg-gray-700 text-gray-400 cursor-not-allowed'}`}
+              >
+                Load Auto-Save (Cookie)
+              </button>
+            </div>
+            <div className="space-y-1 text-sm">
+              {manualCookieSaveStatus && <p className="text-amber-300">{manualCookieSaveStatus}</p>}
+              {loadStatusMessage && <p className="text-amber-300">{loadStatusMessage}</p>}
+              {autoSaveMessage && <p className="text-gray-300">{autoSaveMessage}{lastAutoSaveAt ? ` • Last auto-save: ${lastAutoSaveAt}` : ''}</p>}
+              {!hasAutoSave && <p className="text-gray-400">No auto-save cookie detected yet.</p>}
+            </div>
+          </div>
+        </div>
+      )}
       {showSaveModal && (
         <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
           <div className="bg-gray-800 rounded-lg p-6 w-full max-w-2xl shadow-xl relative">
