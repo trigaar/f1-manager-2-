@@ -1544,6 +1544,14 @@ const App: React.FC = () => {
     return { drivers: teamDrivers, car: teamCar, personnel: teamPersonnelData };
   }, [selectedTeam, carRatings, roster, personnel, drivers]);
 
+  const playerPersonnel = useMemo(() => {
+    if (!playerTeam) return null;
+    const existing = personnel.find(p => p.teamName === playerTeam);
+    if (existing) return existing;
+    const fallback = INITIAL_PERSONNEL.find(p => p.teamName === playerTeam);
+    return fallback || null;
+  }, [personnel, playerTeam]);
+
 
   const formatEventMessage = useCallback((event: LapEvent): string => {
       switch (event.type) {
@@ -3034,13 +3042,13 @@ const App: React.FC = () => {
         team={selectedTeamData}
       />
        <HowToPlayModal isOpen={showHowToPlay} onClose={() => setShowHowToPlay(false)} />
-       {playerTeam && personnel.find(p => p.teamName === playerTeam) && (
+       {playerTeam && playerPersonnel && (
         <HeadquartersScreen
           isOpen={showHqScreen}
           onClose={() => setShowHqScreen(false)}
-          personnel={personnel.find(p => p.teamName === playerTeam) as TeamPersonnel}
+          personnel={playerPersonnel}
           drivers={roster.filter(d => d.car.teamName === playerTeam && d.status === 'Active')}
-          affiliate={personnel.find(p => p.teamName === playerTeam)!.affiliateDriver}
+          affiliate={playerPersonnel.affiliateDriver}
           onContractOffer={handleContractOffer}
           event={hqEvent}
           pendingImpact={pendingHqImpact}
