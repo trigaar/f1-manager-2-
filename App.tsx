@@ -254,6 +254,8 @@ const calculateNextStates = (
 
     nextRaceState = {
         ...nextRaceState,
+        lap: Math.max(0, nextRaceState.lap),
+        totalLaps: safeTotalLaps,
         track: safeTrack,
         weather: safeWeather,
         flag: nextRaceState.flag || RaceFlag.Green,
@@ -1347,7 +1349,7 @@ const App: React.FC = () => {
   ]);
 
   useEffect(() => {
-    if (gamePhase === GamePhase.START_MENU || gamePhase === GamePhase.INTRO) return;
+    if (gamePhase === GamePhase.START_MENU) return;
 
     const timer = setTimeout(() => {
       const snapshot = getCurrentGameState(buildSaveSnapshot());
@@ -1463,18 +1465,6 @@ const App: React.FC = () => {
     }
   }, [loadCodeValue, saveSystemSetters]);
 
-  const handleManualCookieSave = useCallback(() => {
-    const snapshot = getCurrentGameState(buildSaveSnapshot());
-    const result = persistSaveToCookie(snapshot);
-    setManualCookieSaveStatus(result.message);
-    if (result.success) {
-      const timestamp = new Date().toLocaleTimeString();
-      setLastAutoSaveAt(timestamp);
-      setAutoSaveMessage(`Saved to cookie at ${timestamp}.`);
-      setHasAutoSave(true);
-    }
-  }, [buildSaveSnapshot]);
-
   const handleLoadFromCookie = useCallback(() => {
     const result = loadSaveFromCookie(saveSystemSetters);
     setLoadStatusMessage(result.message);
@@ -1485,7 +1475,6 @@ const App: React.FC = () => {
         raceIntervalRef.current = null;
       }
       setShowLoadModal(false);
-      setShowSaveMenu(false);
       setLoadCodeValue('');
     } else {
       setHasAutoSave(false);
@@ -1493,20 +1482,10 @@ const App: React.FC = () => {
   }, [saveSystemSetters]);
 
   const handleStartNewGame = useCallback(() => {
-    setGamePhase(GamePhase.INTRO);
-    setShowLoadModal(false);
-    setShowSaveMenu(false);
-    setLoadStatusMessage(null);
-    setAutoSaveMessage(null);
-    setManualCookieSaveStatus(null);
-  }, []);
-
-  const handleBeginTeamSelection = useCallback(() => {
     setGamePhase(GamePhase.TEAM_SELECTION);
     setShowLoadModal(false);
-    setShowSaveMenu(false);
     setLoadStatusMessage(null);
-    setManualCookieSaveStatus(null);
+    setAutoSaveMessage(null);
   }, []);
 
   useEffect(() => {
@@ -2778,61 +2757,6 @@ const App: React.FC = () => {
             </div>
           </div>
         );
-      case GamePhase.INTRO:
-        return (
-          <div className="w-full max-w-4xl text-center space-y-6">
-            <div className="space-y-2">
-              <h1 className="text-4xl font-bold text-red-500 tracking-wider">Welcome to F1 Strategy Simulator</h1>
-              <p className="text-gray-300">Master tyre calls, weather swings, and team strategy to lead your team to glory.</p>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-left">
-              <div className="p-4 rounded-lg bg-gray-800 border border-gray-700 shadow">
-                <h3 className="text-lg font-semibold text-white mb-2">1. Learn the Basics</h3>
-                <ul className="text-sm text-gray-300 space-y-1 list-disc list-inside">
-                  <li>Tyre wear and weather dictate your pit windows.</li>
-                  <li>Driver form and car pace shift lap times each stint.</li>
-                  <li>Safety Cars and incidents can reset strategies.</li>
-                </ul>
-              </div>
-              <div className="p-4 rounded-lg bg-gray-800 border border-gray-700 shadow">
-                <h3 className="text-lg font-semibold text-white mb-2">2. Select Your Team</h3>
-                <ul className="text-sm text-gray-300 space-y-1 list-disc list-inside">
-                  <li>Compare car strengths and driver skills.</li>
-                  <li>Balance finances, facilities, and future rookies.</li>
-                  <li>Each choice changes your season narrative.</li>
-                </ul>
-              </div>
-              <div className="p-4 rounded-lg bg-gray-800 border border-gray-700 shadow">
-                <h3 className="text-lg font-semibold text-white mb-2">3. Start Your Season</h3>
-                <ul className="text-sm text-gray-300 space-y-1 list-disc list-inside">
-                  <li>Complete practice, qualifying, and race day.</li>
-                  <li>React to HQ events and weekend modifiers.</li>
-                  <li>Save progress anytime from the Save & Load menu.</li>
-                </ul>
-              </div>
-            </div>
-            <div className="flex flex-wrap justify-center gap-3">
-              <button
-                onClick={() => setShowHowToPlay(true)}
-                className="py-3 px-5 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition duration-300"
-              >
-                View How to Play
-              </button>
-              <button
-                onClick={handleBeginTeamSelection}
-                className="py-3 px-5 bg-green-700 hover:bg-green-600 text-white font-semibold rounded-lg transition duration-300 shadow-lg"
-              >
-                Choose Your Team
-              </button>
-              <button
-                onClick={() => setGamePhase(GamePhase.START_MENU)}
-                className="py-3 px-5 bg-gray-800 hover:bg-gray-700 text-white font-semibold rounded-lg transition duration-300"
-              >
-                Back to Start Menu
-              </button>
-            </div>
-          </div>
-        );
       case GamePhase.TEAM_SELECTION:
         return <TeamSelectionScreen teams={teamsDataForSelection} onSelectTeam={handleSetPlayerTeam} onShowHowToPlay={() => setShowHowToPlay(true)} />;
       case GamePhase.SETUP:
@@ -2891,7 +2815,7 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-200 font-sans p-4 flex flex-col items-center">
-      {gamePhase !== GamePhase.START_MENU && gamePhase !== GamePhase.TEAM_SELECTION && gamePhase !== GamePhase.INTRO && (
+      {gamePhase !== GamePhase.START_MENU && gamePhase !== GamePhase.TEAM_SELECTION && (
          <header className="w-full max-w-7xl relative text-center mb-4">
             <h1 className="text-4xl font-bold text-red-500 tracking-wider">F1 Strategy Simulator</h1>
             <p className="text-gray-400">{gamePhase !== GamePhase.POST_SEASON ? `${season} Season - Race ${currentRaceIndex + 1} of ${seasonTracks.length}` : ''}</p>
@@ -2909,9 +2833,12 @@ const App: React.FC = () => {
               >
                 How to Play
               </button>
-            </div>
-            <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
-              <p className="text-sm text-gray-300">Open the Save & Load menu to export, import, or store to cookie.</p>
+              <button
+                onClick={handleLoadFromCookie}
+                className="py-2 px-4 bg-amber-700 hover:bg-amber-600 text-white font-semibold rounded-lg transition duration-300"
+              >
+                Load Auto-Save (Cookie)
+              </button>
             </div>
             {autoSaveMessage && (
               <p className="mt-2 text-sm text-gray-300">{autoSaveMessage}{lastAutoSaveAt ? ` • Last auto-save: ${lastAutoSaveAt}` : ''}</p>
