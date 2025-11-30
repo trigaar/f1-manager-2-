@@ -303,15 +303,15 @@ const calculateNextStates = (
 
     // Guardrails for any corrupt state that might have slipped through between sessions
     const safeTrack = sanitizeTrackState(nextRaceState.track);
-    const safeTotalLaps = Number.isFinite(nextRaceState.totalLaps) && nextRaceState.totalLaps > 0
-        ? nextRaceState.totalLaps
-        : safeTrack.laps;
+    const safeWeather = nextRaceState.weather || 'Sunny';
 
     nextRaceState = {
         ...nextRaceState,
         lap: Math.max(0, nextRaceState.lap),
         totalLaps: safeTotalLaps,
         track: safeTrack,
+        weather: safeWeather,
+        flag: nextRaceState.flag || RaceFlag.Green,
         airTemp: clampNumber(nextRaceState.airTemp, 25, -10, 60),
         trackTemp: clampNumber(nextRaceState.trackTemp, 40, -10, 80),
         trackCondition: {
@@ -320,7 +320,7 @@ const calculateNextStates = (
         },
         masterWeatherForecast: nextRaceState.masterWeatherForecast?.length ? nextRaceState.masterWeatherForecast : Array.from({
             length: safeTrack.laps
-        }, () => nextRaceState.weather || 'Sunny'),
+        }, () => safeWeather),
         teamWeatherForecasts: nextRaceState.teamWeatherForecasts || {},
     };
 
@@ -2330,6 +2330,8 @@ const App: React.FC = () => {
       track: safeTrack,
       lap: safeLap,
       totalLaps: safeTotalLaps,
+      weather: raceStateRef.current.weather || 'Sunny',
+      flag: raceStateRef.current.flag || RaceFlag.Green,
     };
 
     raceStateRef.current = hydratedRaceState;
