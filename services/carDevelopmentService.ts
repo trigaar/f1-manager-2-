@@ -2,7 +2,8 @@
 
 import { TeamFinances, TeamPersonnel, Car, CarDevelopmentResult, CarAttribute } from '../types';
 
-const RD_CONVERSION_RATE = 1 / 50000; // 1 DP per $50k
+const RD_CONVERSION_RATE = 1 / 25000; // 1 DP per $25k baseline
+const OFF_SEASON_DP_MULTIPLIER = 1.75; // Global boost so every team gains more headroom to improve
 const DP_TO_ATTRIBUTE_RATE = 1000; // Base cost for 1 point increase
 const CAR_ATTRIBUTES: CarAttribute[] = ['highSpeedCornering', 'mediumSpeedCornering', 'lowSpeedCornering', 'powerSensitivity', 'reliability', 'tyreWearFactor'];
 
@@ -53,7 +54,7 @@ export const runCarDevelopment = (
         // Step 3: Convert Budget to Development Points
         // FIX: Add null-safe access with fallback for head of technical
         const rdConversion = teamPersonnel.headOfTechnical?.rdConversion || 15;
-        const baseDP = effectiveBudget * (RD_CONVERSION_RATE * (rdConversion / 15)); // Scale conversion by HoT skill
+        const baseDP = effectiveBudget * (RD_CONVERSION_RATE * (rdConversion / 15)) * OFF_SEASON_DP_MULTIPLIER; // Scale conversion by HoT skill with grid-wide boost
         result.devPoints = Math.round(baseDP);
 
         // Step 4: Intelligent DP Allocation
