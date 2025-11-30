@@ -405,10 +405,15 @@ export const runDriverMarket = (
     // Handle Player's expiring contracts that were not renewed in-season
     const playerDrivers = newRoster.filter(d => d.car.teamName === playerTeamName);
     playerDrivers.forEach(driver => {
-        if (driver.contractExpiresIn <= 0 && driver.negotiationStatus !== 'Signed') {
+        const contractExpired = driver.contractExpiresIn <= 0;
+        const unsignedOrDeclined = driver.negotiationStatus !== 'Signed';
+
+        if (contractExpired && unsignedOrDeclined) {
             driver.status = 'Free Agent';
-            // Note: A log for this is created in the UI-facing logic to avoid duplicates
+            driver.contractExpiresIn = 0;
+            log.push({ type: 'DROPPED', driverName: driver.name, fromTeam: playerTeamName });
         }
+
         // Reset negotiation status for next season
         driver.negotiationStatus = undefined;
     });
@@ -425,7 +430,7 @@ export const runDriverMarket = (
         if (!cadillacFinance || !cadillacCar) return;
 
         const targetDrivers = newRoster
-            .filter(d => d.status === 'Free Agent' && d.car.teamName !== playerTeamName)
+            .filter(d => d.status === 'Free Agent')
             .sort((a, b) => b.driverSkills.overall - a.driverSkills.overall);
 
         let cadillacDrivers = newRoster.filter(d => d.car.teamName === 'Cadillac Racing' && d.status === 'Active');
@@ -454,7 +459,7 @@ export const runDriverMarket = (
             const teamFinance = teamFinances.find(f => f.teamName === team.teamName)!;
 
             const availableCandidates: (InitialDriver | RookieDriver)[] = [
-                ...newRoster.filter(d => d.status === 'Free Agent' && d.car.teamName !== playerTeamName), // AI CANNOT poach from player
+                ...newRoster.filter(d => d.status === 'Free Agent'),
                 ...availableRookies
             ];
 
@@ -495,7 +500,7 @@ export const runDriverMarket = (
             const teamPersonnel = personnel.find(p => p.teamName === team.teamName)!;
 
             const candidates = [
-                ...newRoster.filter(d => d.status === 'Free Agent' && d.car.teamName !== playerTeamName),
+                ...newRoster.filter(d => d.status === 'Free Agent'),
                 ...availableRookies
             ].map(candidate => {
                 const dsv = 'id' in candidate ? driverDebriefs.find(dd => dd.driverId === candidate.id)?.dsv || 50 : 0;
