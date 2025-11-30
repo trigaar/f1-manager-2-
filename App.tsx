@@ -2347,46 +2347,75 @@ const App: React.FC = () => {
   }, [formatEventMessage]);
 
   const runSimulationLap = useCallback(() => {
-    const fallbackTrack = seasonTracks[currentRaceIndex] || FULL_SEASON_TRACKS[0];
-    const safeTrack = raceStateRef.current.track?.laps ? sanitizeTrackState(raceStateRef.current.track) : fallbackTrack;
-    const safeLap = clampNumber(raceStateRef.current.lap ?? 0, 0, 0, safeTrack.laps + 1);
-    const safeTotalLaps = clampNumber(
-      raceStateRef.current.totalLaps ?? safeTrack.laps,
-      safeTrack.laps,
-      1,
-      300
-    );
+    try {
+      const fallbackTrack = seasonTracks[currentRaceIndex] || FULL_SEASON_TRACKS[0];
+      const safeTrack = raceStateRef.current.track?.laps ? sanitizeTrackState(raceStateRef.current.track) : fallbackTrack;
+      const safeLap = clampNumber(raceStateRef.current.lap ?? 0, 0, 0, safeTrack.laps + 1);
+      const safeTotalLaps = clampNumber(
+        raceStateRef.current.totalLaps ?? safeTrack.laps,
+        safeTrack.laps,
+        1,
+        300
+      );
 
-    const hydratedRaceState: RaceState = {
-      ...raceStateRef.current,
-      track: safeTrack,
-      lap: safeLap,
-      totalLaps: safeTotalLaps,
-      weather: raceStateRef.current.weather || 'Sunny',
-      flag: raceStateRef.current.flag || RaceFlag.Green,
-    };
+      const hydratedRaceState: RaceState = {
+        ...raceStateRef.current,
+        track: safeTrack,
+        lap: safeLap,
+        totalLaps: safeTotalLaps,
+        weather: raceStateRef.current.weather || 'Sunny',
+        flag: raceStateRef.current.flag || RaceFlag.Green,
+      };
 
-    raceStateRef.current = hydratedRaceState;
+      raceStateRef.current = hydratedRaceState;
 
-    if (hydratedRaceState.lap > hydratedRaceState.totalLaps) {
-      setGamePhase(GamePhase.FINISHED);
-      return;
+      if (hydratedRaceState.lap > hydratedRaceState.totalLaps) {
+        setGamePhase(GamePhase.FINISHED);
+        return;
+      }
+
+      const { nextDrivers, nextRaceState, lapEvents } = calculateNextStates(
+        driversRef.current,
+        hydratedRaceState,
+        personnelRef.current,
+        fastestLapRef.current,
+        addLog,
+        setFastestLap,
+        formatEventMessage,
+        raceHistory
+      );
+      setDrivers(nextDrivers);
+      setRaceState(nextRaceState);
+      setRaceLapEvents(prev => [...prev, ...lapEvents]);
+      handleCommentaryUpdate(lapEvents);
+    } catch (error) {
+      console.error('Race simulation failed, attempting recovery', error);
+
+      const fallbackTrack = seasonTracks[currentRaceIndex] || FULL_SEASON_TRACKS[0];
+      const safeTrack = raceStateRef.current.track?.laps ? sanitizeTrackState(raceStateRef.current.track) : fallbackTrack;
+      const safeLap = clampNumber((raceStateRef.current.lap ?? 0) + 1, 1, 1, safeTrack.laps + 1);
+      const safeTotalLaps = clampNumber(
+        raceStateRef.current.totalLaps ?? safeTrack.laps,
+        safeTrack.laps,
+        1,
+        300
+      );
+
+      const recoveredDrivers = driversRef.current.map(driver =>
+        sanitizeDriverState(driver, safeTrack.baseLapTime, safeTrack)
+      );
+
+      setDrivers(recoveredDrivers);
+      setRaceState(prev => ({
+        ...prev,
+        track: safeTrack,
+        lap: safeLap,
+        totalLaps: safeTotalLaps,
+        weather: prev.weather || 'Sunny',
+        flag: prev.flag || RaceFlag.Green,
+      }));
+      addLog('Race Control resets timing systems after a glitch. Race will continue.');
     }
-
-    const { nextDrivers, nextRaceState, lapEvents } = calculateNextStates(
-      driversRef.current,
-      hydratedRaceState,
-      personnelRef.current,
-      fastestLapRef.current,
-      addLog,
-      setFastestLap,
-      formatEventMessage,
-      raceHistory
-    );
-    setDrivers(nextDrivers);
-    setRaceState(nextRaceState);
-    setRaceLapEvents(prev => [...prev, ...lapEvents]);
-    handleCommentaryUpdate(lapEvents);
   }, [
     addLog,
     currentRaceIndex,
