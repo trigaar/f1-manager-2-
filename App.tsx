@@ -307,6 +307,8 @@ const calculateNextStates = (
 
     nextRaceState = {
         ...nextRaceState,
+        lap: Math.max(0, nextRaceState.lap),
+        totalLaps: safeTotalLaps,
         track: safeTrack,
         weather: safeWeather,
         flag: nextRaceState.flag || RaceFlag.Green,
