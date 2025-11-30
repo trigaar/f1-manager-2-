@@ -31,6 +31,7 @@ import { rollPreRaceEventForTeam } from './services/preRaceEventService';
 import { applyLoadedGameState, GameSaveState, generateSaveCode, getCurrentGameState, loadFromSaveCode, SaveStateSetters } from './services/saveSystem';
 import { computeSafeLapTime, safeClampNumber } from './utils/lapUtils';
 import { clampNumber, sanitizeTrackState, sanitizeDriverState, buildFallbackLapTime, sanitizeLapTiming, hydrateRaceState } from './services/raceEngine';
+import { simulateRaceLap } from './services/raceDayEngine';
 import SetupScreen from './components/SetupScreen';
 import Leaderboard from './components/Leaderboard';
 import RaceControlPanel from './components/RaceControlPanel';
@@ -228,6 +229,20 @@ const calculateNextStates = (
     formatEventMessage: (event: LapEvent) => string,
     raceHistory: RaceHistory
 ): { nextDrivers: Driver[], nextRaceState: RaceState, lapEvents: LapEvent[] } => {
+    const fallbackTrack = prevRaceState.track || FULL_SEASON_TRACKS[0];
+    // Route all lap simulation through the rebuilt race-day engine; legacy logic below is intentionally bypassed.
+    return simulateRaceLap(
+        prevDrivers,
+        prevRaceState,
+        personnel,
+        fastestLap,
+        addLog,
+        setFastestLap,
+        formatEventMessage,
+        raceHistory,
+        fallbackTrack,
+    );
+
     let nextDrivers = JSON.parse(JSON.stringify(prevDrivers)) as Driver[];
     let nextRaceState = { ...prevRaceState };
     let lapEvents: LapEvent[] = [];
