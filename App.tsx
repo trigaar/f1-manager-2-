@@ -28,7 +28,7 @@ import { runAffiliateProgression, runAIAffiliateSignings } from './services/affi
 import { buildInitialRaceState, calculateNextSeasonTracks, createNewRookies, updateRosterForNewSeason } from './services/seasonResetService';
 import { calculateCarLinkImpact } from './services/carLinkService';
 import { rollPreRaceEventForTeam } from './services/preRaceEventService';
-import { applyLoadedGameState, GameSaveState, generateSaveCode, getCurrentGameState, getCookieSaveMetadata, loadFromSaveCode, loadSaveFromCookie, persistSaveToCookie, SaveStateSetters } from './services/saveSystem';
+import { applyLoadedGameState, clearAutoSave, GameSaveState, generateSaveCode, getCurrentGameState, getCookieSaveMetadata, loadFromSaveCode, loadSaveFromCookie, persistSaveToCookie, SaveStateSetters } from './services/saveSystem';
 import { computeSafeLapTime, safeClampNumber } from './utils/lapUtils';
 import { clampNumber, sanitizeTrackState, sanitizeDriverState, buildFallbackLapTime, sanitizeLapTiming, hydrateRaceState } from './services/raceEngine';
 import { simulateRaceLap } from './services/raceDayEngine';
@@ -1494,15 +1494,6 @@ const App: React.FC = () => {
     }
   }, [saveSystemSetters]);
 
-  const handleStartNewGame = useCallback(() => {
-    setGamePhase(GamePhase.INTRO);
-    setShowLoadModal(false);
-    setShowSaveMenu(false);
-    setLoadStatusMessage(null);
-    setAutoSaveMessage(null);
-    setManualCookieSaveStatus(null);
-  }, []);
-
   const handleBeginTeamSelection = useCallback(() => {
     setGamePhase(GamePhase.TEAM_SELECTION);
     setShowLoadModal(false);
@@ -2342,7 +2333,7 @@ const App: React.FC = () => {
     clearHeadquartersState,
   ]);
 
-  const handleStartNewGame = useCallback(() => {
+  const handleStartNewCampaign = useCallback(() => {
     handleResetAllStandings();
     clearAutoSave();
     setHasAutoSave(false);
@@ -2774,7 +2765,7 @@ const App: React.FC = () => {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <button
-                onClick={handleStartNewGame}
+                onClick={handleStartNewCampaign}
                 className="py-4 px-6 bg-red-700 hover:bg-red-600 text-white font-semibold rounded-lg transition duration-300 shadow-lg"
               >
                 Start New Game
