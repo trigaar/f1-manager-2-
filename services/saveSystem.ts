@@ -93,6 +93,15 @@ export interface GameSaveState {
   seasonHistory: SeasonHistoryEntry[];
 }
 
+interface CookieSavePayload {
+  code: string;
+  version: number;
+  savedAt: string;
+}
+
+const DEFAULT_SAVE_COOKIE_NAME = 'f1ManagerSave';
+const DEFAULT_SAVE_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
+
 export interface SaveStateSetters {
   setGamePhase: (phase: GamePhase) => void;
   setOffSeasonPhase: (phase: OffSeasonPhase) => void;
@@ -703,6 +712,58 @@ export const loadFromSaveCode = (code: string, setters: SaveStateSetters): { suc
   } catch (error) {
     console.error('Failed to load save code', error);
     return { success: false, message: 'Unable to read save code. It may be corrupted or from an older version.' };
+  }
+};
+
+/**
+ * Writes the provided game state into a browser cookie so players get automatic saves without copying codes.
+ */
+export const persistSaveToCookie = (
+  state: GameSaveState,
+  cookieName: string = DEFAULT_SAVE_COOKIE_NAME,
+): { success: boolean; message: string } => {
+  try {
+    const code = generateSaveCode(state);
+    const payload: CookieSavePayload = {
+      code,
+      version: state.version ?? 1,
+      savedAt: new Date().toISOString(),
+    };
+    setCookie(cookieName, JSON.stringify(payload));
+    return { success: true, message: 'Game auto-saved to browser cookie.' };
+  } catch (error) {
+    console.error('Failed to persist save to cookie', error);
+    return { success: false, message: 'Unable to auto-save to cookie.' };
+  }
+};
+
+/**
+ * Loads a game state from a browser cookie and hydrates app state.
+ */
+export const loadSaveFromCookie = (
+  setters: SaveStateSetters,
+  cookieName: string = DEFAULT_SAVE_COOKIE_NAME,
+): { success: boolean; message: string } => {
+  try {
+    const cookieValue = readCookie(cookieName);
+    if (!cookieValue) {
+      return { success: false, message: 'No auto-save cookie found.' };
+    }
+
+    const payload = JSON.parse(cookieValue) as CookieSavePayload;
+    if (!payload.code) {
+      return { success: false, message: 'Auto-save cookie is missing a save code.' };
+    }
+
+    const result = loadFromSaveCode(payload.code, setters);
+    if (result.success) {
+      return { success: true, message: `Auto-save from ${payload.savedAt ? new Date(payload.savedAt).toLocaleString() : 'cookie'} loaded.` };
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Failed to load save from cookie', error);
+    return { success: false, message: 'Unable to read auto-save cookie.' };
   }
 };
 

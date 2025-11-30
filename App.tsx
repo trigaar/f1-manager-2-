@@ -1069,6 +1069,8 @@ const App: React.FC = () => {
   const [saveStatusMessage, setSaveStatusMessage] = useState<string | null>(null);
   const [loadCodeValue, setLoadCodeValue] = useState<string>('');
   const [loadStatusMessage, setLoadStatusMessage] = useState<string | null>(null);
+  const [autoSaveMessage, setAutoSaveMessage] = useState<string | null>(null);
+  const [lastAutoSaveAt, setLastAutoSaveAt] = useState<string | null>(null);
   const [hqEvent, setHqEvent] = useState<HeadquartersEvent | null>(null);
   const [hqEventRaceKey, setHqEventRaceKey] = useState<string | null>(null);
   const [pendingHqImpact, setPendingHqImpact] = useState<HeadquartersEventResolution | null>(null);
@@ -1343,6 +1345,22 @@ const App: React.FC = () => {
     seasonHistory,
   ]);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const snapshot = getCurrentGameState(buildSaveSnapshot());
+      const result = persistSaveToCookie(snapshot);
+      if (result.success) {
+        const timestamp = new Date().toLocaleTimeString();
+        setLastAutoSaveAt(timestamp);
+        setAutoSaveMessage(`Auto-saved to cookie at ${timestamp}.`);
+      } else {
+        setAutoSaveMessage(result.message);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [buildSaveSnapshot]);
+
   const saveSystemSetters = useMemo<SaveStateSetters>(() => ({
     setGamePhase,
     setOffSeasonPhase,
@@ -1440,6 +1458,27 @@ const App: React.FC = () => {
       setLoadCodeValue('');
     }
   }, [loadCodeValue, saveSystemSetters]);
+
+  const handleLoadFromCookie = useCallback(() => {
+    const result = loadSaveFromCookie(saveSystemSetters);
+    setLoadStatusMessage(result.message);
+    if (result.success) {
+      if (raceIntervalRef.current) {
+        clearInterval(raceIntervalRef.current);
+        raceIntervalRef.current = null;
+      }
+      setShowLoadModal(false);
+      setLoadCodeValue('');
+    }
+  }, [saveSystemSetters]);
+
+  useEffect(() => {
+    const result = loadSaveFromCookie(saveSystemSetters);
+    if (result.success) {
+      setAutoSaveMessage(result.message);
+      setLastAutoSaveAt(new Date().toLocaleTimeString());
+    }
+  }, [saveSystemSetters]);
   
   const selectedTeamData = useMemo(() => {
     if (!selectedTeam) return null;
@@ -2745,7 +2784,16 @@ const App: React.FC = () => {
               >
                 Load Game (Paste Code)
               </button>
+              <button
+                onClick={handleLoadFromCookie}
+                className="py-2 px-4 bg-amber-700 hover:bg-amber-600 text-white font-semibold rounded-lg transition duration-300"
+              >
+                Load Auto-Save (Cookie)
+              </button>
             </div>
+            {autoSaveMessage && (
+              <p className="mt-2 text-sm text-gray-300">{autoSaveMessage}{lastAutoSaveAt ? ` • Last auto-save: ${lastAutoSaveAt}` : ''}</p>
+            )}
         </header>
       )}
       {renderContent()}
