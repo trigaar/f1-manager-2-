@@ -303,8 +303,14 @@ const calculateNextStates = (
 
     // Guardrails for any corrupt state that might have slipped through between sessions
     const safeTrack = sanitizeTrackState(nextRaceState.track);
+    const safeTotalLaps = Number.isFinite(nextRaceState.totalLaps) && nextRaceState.totalLaps > 0
+        ? nextRaceState.totalLaps
+        : safeTrack.laps;
+
     nextRaceState = {
         ...nextRaceState,
+        lap: Math.max(0, nextRaceState.lap),
+        totalLaps: safeTotalLaps,
         track: safeTrack,
         airTemp: clampNumber(nextRaceState.airTemp, 25, -10, 60),
         trackTemp: clampNumber(nextRaceState.trackTemp, 40, -10, 80),
