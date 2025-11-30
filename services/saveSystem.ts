@@ -194,24 +194,6 @@ const decompressFromEncodedURIComponent = (input: string): string | null => {
   }
 };
 
-const setCookie = (name: string, value: string, maxAgeSeconds = DEFAULT_SAVE_COOKIE_MAX_AGE_SECONDS) => {
-  if (typeof document === 'undefined') return;
-  document.cookie = `${name}=${encodeURIComponent(value)}; max-age=${maxAgeSeconds}; path=/; SameSite=Lax`;
-};
-
-const readCookie = (name: string): string | null => {
-  if (typeof document === 'undefined') return null;
-  const cookieString = document.cookie;
-  if (!cookieString) return null;
-  const cookies = cookieString.split(';').map(c => c.trim());
-  for (const cookie of cookies) {
-    if (cookie.startsWith(`${name}=`)) {
-      return decodeURIComponent(cookie.substring(name.length + 1));
-    }
-  }
-  return null;
-};
-
 const _compress = (uncompressed: string, bitsPerChar: number, getCharFromInt: (value: number) => string): string => {
   if (uncompressed == null) return '';
 
