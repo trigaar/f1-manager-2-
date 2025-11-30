@@ -194,6 +194,51 @@ const decompressFromEncodedURIComponent = (input: string): string | null => {
   }
 };
 
+const setCookie = (name: string, value: string, maxAgeSeconds = DEFAULT_SAVE_COOKIE_MAX_AGE_SECONDS) => {
+  if (typeof document === 'undefined') return;
+  document.cookie = `${name}=${encodeURIComponent(value)}; max-age=${maxAgeSeconds}; path=/; SameSite=Lax`;
+};
+
+const readCookie = (name: string): string | null => {
+  if (typeof document === 'undefined') return null;
+  const cookieString = document.cookie;
+  if (!cookieString) return null;
+  const cookies = cookieString.split(';').map(c => c.trim());
+  for (const cookie of cookies) {
+    if (cookie.startsWith(`${name}=`)) {
+      return decodeURIComponent(cookie.substring(name.length + 1));
+    }
+  }
+  return null;
+};
+
+export const getCookieSaveMetadata = (
+  cookieName: string = DEFAULT_SAVE_COOKIE_NAME,
+): { hasSave: boolean; savedAt?: string; message: string } => {
+  try {
+    const cookieValue = readCookie(cookieName);
+    if (!cookieValue) {
+      return { hasSave: false, message: 'No auto-save cookie found.' };
+    }
+
+    const parsed = JSON.parse(cookieValue) as Partial<CookieSavePayload>;
+    if (!parsed.code) {
+      return { hasSave: false, message: 'Auto-save cookie is missing save data.' };
+    }
+
+    return {
+      hasSave: true,
+      savedAt: parsed.savedAt,
+      message: parsed.savedAt
+        ? `Auto-save available from ${new Date(parsed.savedAt).toLocaleString()}.`
+        : 'Auto-save available.',
+    };
+  } catch (error) {
+    console.error('Failed to read auto-save metadata', error);
+    return { hasSave: false, message: 'Auto-save cookie could not be read.' };
+  }
+};
+
 const _compress = (uncompressed: string, bitsPerChar: number, getCharFromInt: (value: number) => string): string => {
   if (uncompressed == null) return '';
 

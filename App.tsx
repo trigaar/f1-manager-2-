@@ -28,7 +28,7 @@ import { runAffiliateProgression, runAIAffiliateSignings } from './services/affi
 import { buildInitialRaceState, calculateNextSeasonTracks, createNewRookies, updateRosterForNewSeason } from './services/seasonResetService';
 import { calculateCarLinkImpact } from './services/carLinkService';
 import { rollPreRaceEventForTeam } from './services/preRaceEventService';
-import { applyLoadedGameState, GameSaveState, generateSaveCode, getCurrentGameState, loadFromSaveCode, SaveStateSetters } from './services/saveSystem';
+import { applyLoadedGameState, GameSaveState, generateSaveCode, getCurrentGameState, getCookieSaveMetadata, loadFromSaveCode, loadSaveFromCookie, persistSaveToCookie, SaveStateSetters } from './services/saveSystem';
 import { computeSafeLapTime, safeClampNumber } from './utils/lapUtils';
 import { clampNumber, sanitizeTrackState, sanitizeDriverState, buildFallbackLapTime, sanitizeLapTiming, hydrateRaceState } from './services/raceEngine';
 import { simulateRaceLap } from './services/raceDayEngine';
@@ -999,7 +999,7 @@ const calculateNextStates = (
 
 
 const App: React.FC = () => {
-  const [gamePhase, setGamePhase] = useState<GamePhase>(GamePhase.TEAM_SELECTION);
+  const [gamePhase, setGamePhase] = useState<GamePhase>(GamePhase.START_MENU);
   const [offSeasonPhase, setOffSeasonPhase] = useState<OffSeasonPhase>('DEBRIEF');
   const [season, setSeason] = useState<number>(2025);
   const [currentRaceIndex, setCurrentRaceIndex] = useState<number>(0);
@@ -1071,6 +1071,7 @@ const App: React.FC = () => {
   const [loadStatusMessage, setLoadStatusMessage] = useState<string | null>(null);
   const [autoSaveMessage, setAutoSaveMessage] = useState<string | null>(null);
   const [lastAutoSaveAt, setLastAutoSaveAt] = useState<string | null>(null);
+  const [hasAutoSave, setHasAutoSave] = useState<boolean>(false);
   const [hqEvent, setHqEvent] = useState<HeadquartersEvent | null>(null);
   const [hqEventRaceKey, setHqEventRaceKey] = useState<string | null>(null);
   const [pendingHqImpact, setPendingHqImpact] = useState<HeadquartersEventResolution | null>(null);
@@ -1346,6 +1347,8 @@ const App: React.FC = () => {
   ]);
 
   useEffect(() => {
+    if (gamePhase === GamePhase.START_MENU) return;
+
     const timer = setTimeout(() => {
       const snapshot = getCurrentGameState(buildSaveSnapshot());
       const result = persistSaveToCookie(snapshot);
@@ -1353,13 +1356,14 @@ const App: React.FC = () => {
         const timestamp = new Date().toLocaleTimeString();
         setLastAutoSaveAt(timestamp);
         setAutoSaveMessage(`Auto-saved to cookie at ${timestamp}.`);
+        setHasAutoSave(true);
       } else {
         setAutoSaveMessage(result.message);
       }
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [buildSaveSnapshot]);
+  }, [buildSaveSnapshot, gamePhase]);
 
   const saveSystemSetters = useMemo<SaveStateSetters>(() => ({
     setGamePhase,
@@ -1463,22 +1467,33 @@ const App: React.FC = () => {
     const result = loadSaveFromCookie(saveSystemSetters);
     setLoadStatusMessage(result.message);
     if (result.success) {
+      setHasAutoSave(true);
       if (raceIntervalRef.current) {
         clearInterval(raceIntervalRef.current);
         raceIntervalRef.current = null;
       }
       setShowLoadModal(false);
       setLoadCodeValue('');
+    } else {
+      setHasAutoSave(false);
     }
   }, [saveSystemSetters]);
 
+  const handleStartNewGame = useCallback(() => {
+    setGamePhase(GamePhase.TEAM_SELECTION);
+    setShowLoadModal(false);
+    setLoadStatusMessage(null);
+    setAutoSaveMessage(null);
+  }, []);
+
   useEffect(() => {
-    const result = loadSaveFromCookie(saveSystemSetters);
-    if (result.success) {
-      setAutoSaveMessage(result.message);
-      setLastAutoSaveAt(new Date().toLocaleTimeString());
+    const metadata = getCookieSaveMetadata();
+    setHasAutoSave(metadata.hasSave);
+    setAutoSaveMessage(metadata.message);
+    if (metadata.savedAt) {
+      setLastAutoSaveAt(new Date(metadata.savedAt).toLocaleTimeString());
     }
-  }, [saveSystemSetters]);
+  }, []);
   
   const selectedTeamData = useMemo(() => {
     if (!selectedTeam) return null;
@@ -2702,6 +2717,44 @@ const App: React.FC = () => {
         );
     }
     switch (gamePhase) {
+      case GamePhase.START_MENU:
+        return (
+          <div className="w-full max-w-3xl text-center space-y-6">
+            <div className="space-y-2">
+              <h1 className="text-4xl font-bold text-red-500 tracking-wider">F1 Strategy Simulator</h1>
+              <p className="text-gray-300">Load an existing save or start a brand new campaign.</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <button
+                onClick={handleStartNewGame}
+                className="py-4 px-6 bg-red-700 hover:bg-red-600 text-white font-semibold rounded-lg transition duration-300 shadow-lg"
+              >
+                Start New Game
+              </button>
+              <button
+                onClick={handleLoadFromCookie}
+                disabled={!hasAutoSave}
+                className={`py-4 px-6 font-semibold rounded-lg transition duration-300 shadow-lg ${hasAutoSave ? 'bg-amber-700 hover:bg-amber-600 text-white' : 'bg-gray-700 text-gray-400 cursor-not-allowed'}`}
+              >
+                Continue from Auto-Save
+              </button>
+              <button
+                onClick={() => { setShowLoadModal(true); setLoadStatusMessage(null); }}
+                className="py-4 px-6 bg-blue-700 hover:bg-blue-600 text-white font-semibold rounded-lg transition duration-300 shadow-lg"
+              >
+                Load from Code
+              </button>
+            </div>
+            <div className="space-y-2">
+              {autoSaveMessage && (
+                <p className="text-sm text-gray-300">{autoSaveMessage}{lastAutoSaveAt ? ` • Last auto-save: ${lastAutoSaveAt}` : ''}</p>
+              )}
+              {!hasAutoSave && (
+                <p className="text-xs text-gray-400">No auto-save detected yet. Start a new game to begin.</p>
+              )}
+            </div>
+          </div>
+        );
       case GamePhase.TEAM_SELECTION:
         return <TeamSelectionScreen teams={teamsDataForSelection} onSelectTeam={handleSetPlayerTeam} onShowHowToPlay={() => setShowHowToPlay(true)} />;
       case GamePhase.SETUP:
@@ -2760,7 +2813,7 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-200 font-sans p-4 flex flex-col items-center">
-      {gamePhase !== GamePhase.TEAM_SELECTION && (
+      {gamePhase !== GamePhase.START_MENU && gamePhase !== GamePhase.TEAM_SELECTION && (
          <header className="w-full max-w-7xl relative text-center mb-4">
             <h1 className="text-4xl font-bold text-red-500 tracking-wider">F1 Strategy Simulator</h1>
             <p className="text-gray-400">{gamePhase !== GamePhase.POST_SEASON ? `${season} Season - Race ${currentRaceIndex + 1} of ${seasonTracks.length}` : ''}</p>
