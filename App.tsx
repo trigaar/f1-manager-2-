@@ -678,7 +678,12 @@ const calculateNextStates = (
             let baseLapTime = nextRaceState.track.baseLapTime + (newWaterLevel / 10);
 
             if (!Number.isFinite(baseLapTime)) {
-                baseLapTime = Math.max(70, (nextRaceState.track.baseLapTime || 90));
+                const driverPaceAnchor = clampNumber(driver.driverSkills.overall ?? 80, 80, 40, 120);
+                const individuality = (Math.random() - 0.5) * 1.5;
+                baseLapTime = Math.max(
+                    70,
+                    (nextRaceState.track.baseLapTime || baseLapReference) + ((100 - driverPaceAnchor) * 0.04) + individuality,
+                );
             }
 
             if (driver.hqModifiers?.lapTimeModifier) {
@@ -789,7 +794,8 @@ const calculateNextStates = (
         }
 
         const lapTimeApplied = clampNumber(driver.lapTime, baseLapReference, 40, 400);
-        driver.totalRaceTime = clampNumber(driver.totalRaceTime + lapTimeApplied, lapTimeApplied, 0, Number.MAX_SAFE_INTEGER);
+        const startingTotalTime = Number.isFinite(driver.totalRaceTime) ? driver.totalRaceTime : lapTimeApplied;
+        driver.totalRaceTime = clampNumber(startingTotalTime + lapTimeApplied, lapTimeApplied, 0, Number.MAX_SAFE_INTEGER);
         let fuelConsumption = 1.8;
         if (driver.paceMode === 'Pushing') fuelConsumption *= 1.1;
         if (driver.paceMode === 'Conserving') fuelConsumption *= 0.85;
