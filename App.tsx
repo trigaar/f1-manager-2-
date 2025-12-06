@@ -1,7 +1,7 @@
 
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { RaceState, Driver, Track, GamePhase, TyreCompound, LapEvent, RaceFlag, InitialDriver, QualifyingResult, OffSeasonPhase, TeamFinances, TeamPersonnel, PersonnelChangeEvent, DriverMarketEvent, Car, CarDevelopmentResult, DriverStanding, RegulationEvent, RookieDriver, Tyre, DriverProgressionEvent, RaceHistory, LapEventType, ResourceAllocationEvent, PracticeResult, AiRaceSummary, AiSeasonReview, UpcomingRaceQuote, TeamDebrief, DriverDebrief, PlayerCarDev, AffiliateDriver, AffiliateChangeEvent, ConstructorStanding, ShortlistDriver, HeadquartersEvent, HeadquartersEventEffect, HeadquartersEventResolution, WeekendModifier, Strategy, MidSeasonDevelopmentPrompt, MidSeasonAdjustment } from './types';
+import { RaceState, Driver, Track, GamePhase, TyreCompound, LapEvent, RaceFlag, InitialDriver, QualifyingResult, OffSeasonPhase, TeamFinances, TeamPersonnel, PersonnelChangeEvent, DriverMarketEvent, Car, CarDevelopmentResult, DriverStanding, RegulationEvent, RookieDriver, Tyre, DriverProgressionEvent, RaceHistory, LapEventType, ResourceAllocationEvent, PracticeResult, AiRaceSummary, AiSeasonReview, UpcomingRaceQuote, TeamDebrief, DriverDebrief, PlayerCarDev, AffiliateDriver, AffiliateChangeEvent, ConstructorStanding, ShortlistDriver, HeadquartersEvent, HeadquartersEventEffect, HeadquartersEventResolution, WeekendModifier, Strategy } from './types';
 import { FULL_SEASON_TRACKS, SHORT_SEASON_TRACKS, INITIAL_DRIVERS, TYRE_LIFE, INITIAL_PERSONNEL, CARS, TEAM_COLORS, ROOKIE_POOL, TYRE_PROPERTIES, TIRE_BLANKET_TEMP, AFFILIATE_CANDIDATES } from './constants';
 import { pickRandomHeadquartersEvent } from './constants/headquartersEvents';
 import { generateLocalStrategy } from './services/strategyService';
@@ -32,7 +32,6 @@ import { applyLoadedGameState, clearAutoSave, GameSaveState, generateSaveCode, g
 import { computeSafeLapTime, safeClampNumber } from './utils/lapUtils';
 import { clampNumber, sanitizeTrackState, sanitizeDriverState, buildFallbackLapTime, sanitizeLapTiming, hydrateRaceState } from './services/raceEngine';
 import { simulateRaceLap } from './services/raceDayEngine';
-import { applyPlayerDevelopmentChoice, evaluateInSeasonDevelopment } from './services/inSeasonDevelopmentService';
 import SetupScreen from './components/SetupScreen';
 import Leaderboard from './components/Leaderboard';
 import RaceControlPanel from './components/RaceControlPanel';
@@ -255,6 +254,8 @@ const calculateNextStates = (
 
     nextRaceState = {
         ...nextRaceState,
+        lap: Math.max(0, nextRaceState.lap),
+        totalLaps: safeTotalLaps,
         track: safeTrack,
         weather: safeWeather,
         flag: nextRaceState.flag || RaceFlag.Green,

@@ -91,27 +91,6 @@ const degradeTyres = (driver: Driver, track: Track, isWet: boolean) => {
   driver.currentTyres.age += 1;
 };
 
-const orderDriversForGrid = (drivers: Driver[]) => {
-  const ordered = [...drivers].sort((a, b) => {
-    const aOut = a.raceStatus === 'Crashed' || a.raceStatus === 'DNF';
-    const bOut = b.raceStatus === 'Crashed' || b.raceStatus === 'DNF';
-    if (aOut && !bOut) return 1;
-    if (!aOut && bOut) return -1;
-    if (aOut && bOut) return (b.retirementLap || 0) - (a.retirementLap || 0);
-    return a.totalRaceTime - b.totalRaceTime;
-  });
-
-  const leaderTime = ordered.find((d) => d.raceStatus !== 'Crashed' && d.raceStatus !== 'DNF')?.totalRaceTime || 0;
-  ordered.forEach((driver, index) => {
-    driver.position = index + 1;
-    if (driver.raceStatus !== 'Crashed' && driver.raceStatus !== 'DNF') {
-      driver.gapToLeader = driver.totalRaceTime - leaderTime;
-    }
-  });
-
-  return ordered;
-};
-
 const computeLapTime = (
   driver: Driver,
   raceState: RaceState,
@@ -171,7 +150,6 @@ export const simulateRaceLap = (
 
   const lapEvents: LapEvent[] = [];
   const flagTriggers: RaceFlag[] = [];
-  let flagStartedThisLap = false;
 
   const weather = nextRaceState.masterWeatherForecast[nextRaceState.lap - 1] || nextRaceState.weather || 'Sunny';
   let waterLevel = clampNumber(nextRaceState.trackCondition.waterLevel ?? 0, 0, 0, 100);
@@ -195,19 +173,16 @@ export const simulateRaceLap = (
   const redFlagActive = nextRaceState.flag === RaceFlag.Red && nextRaceState.flagLaps > 0;
 
   if (redFlagActive) {
-    const preCountdownLaps = nextRaceState.flagLaps;
     nextRaceState.flagLaps = Math.max(0, nextRaceState.flagLaps - 1);
     lapEvents.unshift({ type: 'RED_FLAG', driverName: 'Race Control', data: { status: 'Cars queued' } });
-    nextDrivers = orderDriversForGrid(
-      nextDrivers.map((driver) => ({
-        ...driver,
-        lapTime: safeClampNumber(driver.lapTime, nextRaceState.track.baseLapTime, 40, 400),
-        totalRaceTime: safeClampNumber(driver.totalRaceTime, driver.lapTime || nextRaceState.track.baseLapTime, 0, Number.MAX_SAFE_INTEGER),
-        pittedThisLap: false,
-      })),
-    );
+    nextDrivers = nextDrivers.map((driver) => ({
+      ...driver,
+      lapTime: safeClampNumber(driver.lapTime, nextRaceState.track.baseLapTime, 40, 400),
+      totalRaceTime: safeClampNumber(driver.totalRaceTime, driver.lapTime || nextRaceState.track.baseLapTime, 0, Number.MAX_SAFE_INTEGER),
+      pittedThisLap: false,
+    }));
 
-    if (nextRaceState.flagLaps === 0 && preCountdownLaps > 0) {
+    if (nextRaceState.flagLaps === 0) {
       nextRaceState.flag = RaceFlag.Green;
       nextDrivers.forEach((d) => (d.pittedUnderSCThisPeriod = false));
       addLog('Race Control: red flag cleared, racing will resume.');
@@ -231,16 +206,13 @@ export const simulateRaceLap = (
   if (redFlagTriggered) {
     nextRaceState.flag = RaceFlag.Red;
     nextRaceState.flagLaps = Math.max(nextRaceState.flagLaps || 0, 3);
-    flagStartedThisLap = true;
     lapEvents.unshift({ type: 'RED_FLAG', driverName: 'Race Control', data: { status: 'Session stopped' } });
-    nextDrivers = orderDriversForGrid(
-      nextDrivers.map((driver) => ({
-        ...driver,
-        lapTime: safeClampNumber(driver.lapTime, nextRaceState.track.baseLapTime, 40, 400),
-        totalRaceTime: safeClampNumber(driver.totalRaceTime, driver.lapTime || nextRaceState.track.baseLapTime, 0, Number.MAX_SAFE_INTEGER),
-        pittedThisLap: false,
-      })),
-    );
+    nextDrivers = nextDrivers.map((driver) => ({
+      ...driver,
+      lapTime: safeClampNumber(driver.lapTime, nextRaceState.track.baseLapTime, 40, 400),
+      totalRaceTime: safeClampNumber(driver.totalRaceTime, driver.lapTime || nextRaceState.track.baseLapTime, 0, Number.MAX_SAFE_INTEGER),
+      pittedThisLap: false,
+    }));
     addLog('Race Control: red flag — cars will line up and await the restart.');
 
     return {
@@ -291,43 +263,53 @@ export const simulateRaceLap = (
     }
   });
 
-  if (nextRaceState.flag !== RaceFlag.Green) {
-    if (!flagStartedThisLap && nextRaceState.flagLaps > 0) {
-      nextRaceState.flagLaps -= 1;
-    }
+  if (nextRaceState.flagLaps > 0) {
+    nextRaceState.flagLaps -= 1;
+  }
 
-    if (nextRaceState.flagLaps === 0) {
-      nextRaceState.flag = RaceFlag.Green;
-      nextDrivers.forEach((d) => (d.pittedUnderSCThisPeriod = false));
-      addLog('Race Control: track clear, green flag conditions restored.');
-    }
+  if (nextRaceState.flagLaps === 0 && nextRaceState.flag !== RaceFlag.Green) {
+    nextRaceState.flag = RaceFlag.Green;
+    nextDrivers.forEach((d) => (d.pittedUnderSCThisPeriod = false));
+    addLog('Race Control: track clear, green flag conditions restored.');
   }
 
   if (nextRaceState.flag === RaceFlag.Green) {
     if (flagTriggers.includes(RaceFlag.Red)) {
       nextRaceState.flag = RaceFlag.Red;
       nextRaceState.flagLaps = 2;
-      flagStartedThisLap = true;
       lapEvents.unshift({ type: 'RED_FLAG', driverName: 'Race Control' });
     } else if (flagTriggers.includes(RaceFlag.SafetyCar)) {
       nextRaceState.flag = RaceFlag.SafetyCar;
       nextRaceState.flagLaps = 3;
-      flagStartedThisLap = true;
       lapEvents.unshift({ type: 'SAFETY_CAR', driverName: 'Race Control' });
     } else if (flagTriggers.includes(RaceFlag.VirtualSafetyCar)) {
       nextRaceState.flag = RaceFlag.VirtualSafetyCar;
       nextRaceState.flagLaps = 2;
-      flagStartedThisLap = true;
       lapEvents.unshift({ type: 'VSC', driverName: 'Race Control' });
     } else if (flagTriggers.includes(RaceFlag.Yellow)) {
       nextRaceState.flag = RaceFlag.Yellow;
       nextRaceState.flagLaps = 1;
-      flagStartedThisLap = true;
       lapEvents.unshift({ type: 'YELLOW_FLAG', driverName: 'Race Control' });
     }
   }
 
-  nextDrivers = orderDriversForGrid(nextDrivers.map((driver) => sanitizeLapTiming(driver, nextRaceState.track.baseLapTime, nextRaceState.track)));
+  nextDrivers = nextDrivers.map((driver) => sanitizeLapTiming(driver, nextRaceState.track.baseLapTime, nextRaceState.track));
+  nextDrivers.sort((a, b) => {
+    const aOut = a.raceStatus === 'Crashed' || a.raceStatus === 'DNF';
+    const bOut = b.raceStatus === 'Crashed' || b.raceStatus === 'DNF';
+    if (aOut && !bOut) return 1;
+    if (!aOut && bOut) return -1;
+    if (aOut && bOut) return (b.retirementLap || 0) - (a.retirementLap || 0);
+    return a.totalRaceTime - b.totalRaceTime;
+  });
+
+  const leaderTime = nextDrivers.find((d) => d.raceStatus !== 'Crashed' && d.raceStatus !== 'DNF')?.totalRaceTime || 0;
+  nextDrivers.forEach((driver, index) => {
+    driver.position = index + 1;
+    if (driver.raceStatus !== 'Crashed' && driver.raceStatus !== 'DNF') {
+      driver.gapToLeader = driver.totalRaceTime - leaderTime;
+    }
+  });
 
   lapEvents.forEach((event, idx) => setTimeout(() => addLog(formatEventMessage(event)), idx * 350));
 
