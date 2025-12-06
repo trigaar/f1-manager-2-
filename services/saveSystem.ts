@@ -22,6 +22,8 @@ import {
   QualifyingResult,
   RaceHistory,
   RaceState,
+  MidSeasonAdjustment,
+  MidSeasonDevelopmentPrompt,
   RegulationEvent,
   ResourceAllocationEvent,
   RookieDriver,
@@ -77,6 +79,8 @@ export interface GameSaveState {
   driverMarketLog: DriverMarketEvent[];
   regulationChangeLog: RegulationEvent[];
   devResults: CarDevelopmentResult[];
+  midSeasonPrompt: MidSeasonDevelopmentPrompt | null;
+  midSeasonAdjustments: MidSeasonAdjustment[];
   selectedTeam: string | null;
   showHistoryScreen: boolean;
   showGarageScreen: boolean;
@@ -92,6 +96,16 @@ export interface GameSaveState {
   raceHistory: RaceHistory;
   seasonHistory: SeasonHistoryEntry[];
 }
+
+interface CookieSavePayload {
+  code: string;
+  version: number;
+  savedAt: string;
+}
+
+const DEFAULT_SAVE_COOKIE_NAME = 'f1ManagerSave';
+const DEFAULT_SAVE_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
+const DEFAULT_SAVE_STORAGE_KEY = `${DEFAULT_SAVE_COOKIE_NAME}-payload`;
 
 export interface SaveStateSetters {
   setGamePhase: (phase: GamePhase) => void;
@@ -135,6 +149,8 @@ export interface SaveStateSetters {
   setDriverMarketLog: (log: DriverMarketEvent[]) => void;
   setRegulationChangeLog: (log: RegulationEvent[]) => void;
   setDevResults: (results: CarDevelopmentResult[]) => void;
+  setMidSeasonPrompt: (prompt: MidSeasonDevelopmentPrompt | null) => void;
+  setMidSeasonAdjustments: (adjustments: MidSeasonAdjustment[]) => void;
   setSelectedTeam: (team: string | null) => void;
   setShowHistoryScreen: (value: boolean) => void;
   setShowGarageScreen: (value: boolean) => void;
@@ -158,6 +174,517 @@ export const getCurrentGameState = (state: GameSaveState): GameSaveState => ({
   ...state,
   version: state.version ?? 1,
 });
+
+// Lightweight LZ-based compression adapted from the MIT-licensed lz-string project
+// Source: https://github.com/pieroxy/lz-string
+const keyStrUriSafe = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-$';
+
+const getBaseValue = (alphabet: string, character: string) => {
+  const index = alphabet.indexOf(character);
+  if (index === -1) throw new Error('Invalid character in compressed string');
+  return index;
+};
+
+const compressToEncodedURIComponent = (input: string): string => {
+  if (input == null) return '';
+  return _compress(input, 6, (a: number) => keyStrUriSafe.charAt(a));
+};
+
+const decompressFromEncodedURIComponent = (input: string): string | null => {
+  if (input == null) return '';
+  try {
+    input = input.replace(/ /g, '+');
+    return _decompress(input.length, 32, index => getBaseValue(keyStrUriSafe, input.charAt(index)));
+  } catch (error) {
+    console.error('Failed to decompress save code', error);
+    return null;
+  }
+};
+
+const setCookie = (name: string, value: string, maxAgeSeconds = DEFAULT_SAVE_COOKIE_MAX_AGE_SECONDS) => {
+  if (typeof document === 'undefined') return;
+  document.cookie = `${name}=${encodeURIComponent(value)}; max-age=${maxAgeSeconds}; path=/; SameSite=Lax`;
+};
+
+const clearCookie = (name: string) => {
+  if (typeof document === 'undefined') return;
+  document.cookie = `${name}=; Max-Age=0; path=/; SameSite=Lax`;
+};
+
+const readCookie = (name: string): string | null => {
+  if (typeof document === 'undefined') return null;
+  const cookieString = document.cookie;
+  if (!cookieString) return null;
+  const cookies = cookieString.split(';').map(c => c.trim());
+  for (const cookie of cookies) {
+    if (cookie.startsWith(`${name}=`)) {
+      return decodeURIComponent(cookie.substring(name.length + 1));
+    }
+  }
+  return null;
+};
+
+const writeAutoSavePayload = (
+  payload: CookieSavePayload,
+  cookieName: string = DEFAULT_SAVE_COOKIE_NAME,
+  storageKey: string = DEFAULT_SAVE_STORAGE_KEY,
+) => {
+  const serialized = JSON.stringify(payload);
+  setCookie(cookieName, serialized);
+
+  if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+    try {
+      window.localStorage.setItem(storageKey, serialized);
+    } catch (error) {
+      console.warn('Unable to persist auto-save payload to localStorage', error);
+    }
+  }
+};
+
+const readAutoSavePayload = (
+  cookieName: string = DEFAULT_SAVE_COOKIE_NAME,
+  storageKey: string = DEFAULT_SAVE_STORAGE_KEY,
+): CookieSavePayload | null => {
+  try {
+    const cookieValue = readCookie(cookieName);
+    if (cookieValue) {
+      return JSON.parse(cookieValue) as CookieSavePayload;
+    }
+
+    if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+      const stored = window.localStorage.getItem(storageKey);
+      if (stored) {
+        const parsed = JSON.parse(stored) as CookieSavePayload;
+        // Heal missing cookie for future reads
+        writeAutoSavePayload(parsed, cookieName, storageKey);
+        return parsed;
+      }
+    }
+  } catch (error) {
+    console.error('Failed to read auto-save payload', error);
+  }
+
+  return null;
+};
+
+export const clearAutoSave = (
+  cookieName: string = DEFAULT_SAVE_COOKIE_NAME,
+  storageKey: string = DEFAULT_SAVE_STORAGE_KEY,
+) => {
+  clearCookie(cookieName);
+
+  if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+    try {
+      window.localStorage.removeItem(storageKey);
+    } catch (error) {
+      console.warn('Unable to remove auto-save payload from localStorage', error);
+    }
+  }
+};
+
+export const getCookieSaveMetadata = (
+  cookieName: string = DEFAULT_SAVE_COOKIE_NAME,
+  storageKey: string = DEFAULT_SAVE_STORAGE_KEY,
+): { hasSave: boolean; savedAt?: string; message: string } => {
+  try {
+    const payload = readAutoSavePayload(cookieName, storageKey);
+    if (!payload) {
+      return { hasSave: false, message: 'No auto-save cookie found.' };
+    }
+
+    if (!payload.code) {
+      return { hasSave: false, message: 'Auto-save cookie is missing save data.' };
+    }
+
+    return {
+      hasSave: true,
+      savedAt: payload.savedAt,
+      message: payload.savedAt
+        ? `Auto-save available from ${new Date(payload.savedAt).toLocaleString()}.`
+        : 'Auto-save available.',
+    };
+  } catch (error) {
+    console.error('Failed to read auto-save metadata', error);
+    return { hasSave: false, message: 'Auto-save cookie could not be read.' };
+  }
+};
+
+const _compress = (uncompressed: string, bitsPerChar: number, getCharFromInt: (value: number) => string): string => {
+  if (uncompressed == null) return '';
+
+  let i: number;
+  let value: number;
+  const contextDictionary: Record<string, number> = {};
+  const contextDictionaryToCreate: Record<string, boolean> = {};
+  let contextC = '';
+  let contextW = '';
+  const contextData: number[] = [];
+  let contextEnlargeIn = 2;
+  let contextDictSize = 3;
+  let contextNumBits = 2;
+  let contextDataVal = 0;
+  let contextDataPosition = 0;
+
+  for (let ii = 0; ii < uncompressed.length; ii += 1) {
+    contextC = uncompressed.charAt(ii);
+
+    if (!Object.prototype.hasOwnProperty.call(contextDictionary, contextC)) {
+      contextDictionary[contextC] = contextDictSize++;
+      contextDictionaryToCreate[contextC] = true;
+    }
+
+    const contextWC = contextW + contextC;
+    if (Object.prototype.hasOwnProperty.call(contextDictionary, contextWC)) {
+      contextW = contextWC;
+    } else {
+      if (Object.prototype.hasOwnProperty.call(contextDictionaryToCreate, contextW)) {
+        if (contextW.charCodeAt(0) < 256) {
+          for (i = 0; i < contextNumBits; i++) {
+            contextDataVal = (contextDataVal << 1);
+            if (contextDataPosition == bitsPerChar - 1) {
+              contextDataPosition = 0;
+              contextData.push(getCharFromInt(contextDataVal));
+              contextDataVal = 0;
+            } else {
+              contextDataPosition++;
+            }
+          }
+          value = contextW.charCodeAt(0);
+          for (i = 0; i < 8; i++) {
+            contextDataVal = (contextDataVal << 1) | (value & 1);
+            if (contextDataPosition == bitsPerChar - 1) {
+              contextDataPosition = 0;
+              contextData.push(getCharFromInt(contextDataVal));
+              contextDataVal = 0;
+            } else {
+              contextDataPosition++;
+            }
+            value >>= 1;
+          }
+        } else {
+          value = 1;
+          for (i = 0; i < contextNumBits; i++) {
+            contextDataVal = (contextDataVal << 1) | value;
+            if (contextDataPosition == bitsPerChar - 1) {
+              contextDataPosition = 0;
+              contextData.push(getCharFromInt(contextDataVal));
+              contextDataVal = 0;
+            } else {
+              contextDataPosition++;
+            }
+            value = 0;
+          }
+          value = contextW.charCodeAt(0);
+          for (i = 0; i < 16; i++) {
+            contextDataVal = (contextDataVal << 1) | (value & 1);
+            if (contextDataPosition == bitsPerChar - 1) {
+              contextDataPosition = 0;
+              contextData.push(getCharFromInt(contextDataVal));
+              contextDataVal = 0;
+            } else {
+              contextDataPosition++;
+            }
+            value >>= 1;
+          }
+        }
+        contextEnlargeIn--;
+        if (contextEnlargeIn == 0) {
+          contextEnlargeIn = 1 << contextNumBits;
+          contextNumBits++;
+        }
+        delete contextDictionaryToCreate[contextW];
+      } else {
+        value = contextDictionary[contextW];
+        for (i = 0; i < contextNumBits; i++) {
+          contextDataVal = (contextDataVal << 1) | (value & 1);
+          if (contextDataPosition == bitsPerChar - 1) {
+            contextDataPosition = 0;
+            contextData.push(getCharFromInt(contextDataVal));
+            contextDataVal = 0;
+          } else {
+            contextDataPosition++;
+          }
+          value >>= 1;
+        }
+
+      }
+      contextEnlargeIn--;
+      if (contextEnlargeIn == 0) {
+        contextEnlargeIn = 1 << contextNumBits;
+        contextNumBits++;
+      }
+      contextDictionary[contextWC] = contextDictSize++;
+      contextW = String(contextC);
+    }
+  }
+
+  if (contextW !== '') {
+    if (Object.prototype.hasOwnProperty.call(contextDictionaryToCreate, contextW)) {
+      if (contextW.charCodeAt(0) < 256) {
+        for (i = 0; i < contextNumBits; i++) {
+          contextDataVal = (contextDataVal << 1);
+          if (contextDataPosition == bitsPerChar - 1) {
+            contextDataPosition = 0;
+            contextData.push(getCharFromInt(contextDataVal));
+            contextDataVal = 0;
+          } else {
+            contextDataPosition++;
+          }
+        }
+        value = contextW.charCodeAt(0);
+        for (i = 0; i < 8; i++) {
+          contextDataVal = (contextDataVal << 1) | (value & 1);
+          if (contextDataPosition == bitsPerChar - 1) {
+            contextDataPosition = 0;
+            contextData.push(getCharFromInt(contextDataVal));
+            contextDataVal = 0;
+          } else {
+            contextDataPosition++;
+          }
+          value >>= 1;
+        }
+      } else {
+        value = 1;
+        for (i = 0; i < contextNumBits; i++) {
+          contextDataVal = (contextDataVal << 1) | value;
+          if (contextDataPosition == bitsPerChar - 1) {
+            contextDataPosition = 0;
+            contextData.push(getCharFromInt(contextDataVal));
+            contextDataVal = 0;
+          } else {
+            contextDataPosition++;
+          }
+          value = 0;
+        }
+        value = contextW.charCodeAt(0);
+        for (i = 0; i < 16; i++) {
+          contextDataVal = (contextDataVal << 1) | (value & 1);
+          if (contextDataPosition == bitsPerChar - 1) {
+            contextDataPosition = 0;
+            contextData.push(getCharFromInt(contextDataVal));
+            contextDataVal = 0;
+          } else {
+            contextDataPosition++;
+          }
+          value >>= 1;
+        }
+      }
+      contextEnlargeIn--;
+      if (contextEnlargeIn == 0) {
+        contextEnlargeIn = 1 << contextNumBits;
+        contextNumBits++;
+      }
+      delete contextDictionaryToCreate[contextW];
+    } else {
+      value = contextDictionary[contextW];
+      for (i = 0; i < contextNumBits; i++) {
+        contextDataVal = (contextDataVal << 1) | (value & 1);
+        if (contextDataPosition == bitsPerChar - 1) {
+          contextDataPosition = 0;
+          contextData.push(getCharFromInt(contextDataVal));
+          contextDataVal = 0;
+        } else {
+          contextDataPosition++;
+        }
+        value >>= 1;
+      }
+    }
+    contextEnlargeIn--;
+    if (contextEnlargeIn == 0) {
+      contextEnlargeIn = 1 << contextNumBits;
+      contextNumBits++;
+    }
+  }
+
+  value = 2;
+  for (i = 0; i < contextNumBits; i++) {
+    contextDataVal = (contextDataVal << 1) | (value & 1);
+    if (contextDataPosition == bitsPerChar - 1) {
+      contextDataPosition = 0;
+      contextData.push(getCharFromInt(contextDataVal));
+      contextDataVal = 0;
+    } else {
+      contextDataPosition++;
+    }
+    value >>= 1;
+  }
+
+  while (true) {
+    contextDataVal = (contextDataVal << 1);
+    if (contextDataPosition == bitsPerChar - 1) {
+      contextData.push(getCharFromInt(contextDataVal));
+      break;
+    }
+    contextDataPosition++;
+  }
+
+  return contextData.join('');
+};
+
+const _decompress = (length: number, resetValue: number, getNextValue: (index: number) => number): string | null => {
+  const dictionary: string[] = [];
+  let next;
+  let enlargeIn = 4;
+  let dictSize = 4;
+  let numBits = 3;
+  let entry = '';
+  const result: string[] = [];
+  let i: number;
+  let w: string;
+  let bits: number;
+  let resb: number;
+  let maxpower: number;
+  let power: number;
+
+  const data = { val: getNextValue(0), position: resetValue, index: 1 };
+
+  for (i = 0; i < 3; i += 1) {
+    dictionary[i] = i.toString();
+  }
+
+  bits = 0;
+  maxpower = 2 ** 2;
+  power = 1;
+  while (power !== maxpower) {
+    resb = data.val & data.position;
+    data.position >>= 1;
+    if (data.position === 0) {
+      data.position = resetValue;
+      data.val = getNextValue(data.index++);
+    }
+    bits |= (resb > 0 ? 1 : 0) * power;
+    power <<= 1;
+  }
+
+  switch (next = bits) {
+    case 0:
+      bits = 0;
+      maxpower = 2 ** 8;
+      power = 1;
+      while (power !== maxpower) {
+        resb = data.val & data.position;
+        data.position >>= 1;
+        if (data.position === 0) {
+          data.position = resetValue;
+          data.val = getNextValue(data.index++);
+        }
+        bits |= (resb > 0 ? 1 : 0) * power;
+        power <<= 1;
+      }
+      dictionary[3] = String.fromCharCode(bits);
+      next = 3;
+      break;
+    case 1:
+      bits = 0;
+      maxpower = 2 ** 16;
+      power = 1;
+      while (power !== maxpower) {
+        resb = data.val & data.position;
+        data.position >>= 1;
+        if (data.position === 0) {
+          data.position = resetValue;
+          data.val = getNextValue(data.index++);
+        }
+        bits |= (resb > 0 ? 1 : 0) * power;
+        power <<= 1;
+      }
+      dictionary[3] = String.fromCharCode(bits);
+      next = 3;
+      break;
+    case 2:
+      return '';
+  }
+
+  w = dictionary[next];
+  result.push(w);
+
+  while (true) {
+    if (data.index > length) {
+      return '';
+    }
+
+    bits = 0;
+    maxpower = 2 ** numBits;
+    power = 1;
+    while (power !== maxpower) {
+      resb = data.val & data.position;
+      data.position >>= 1;
+      if (data.position === 0) {
+        data.position = resetValue;
+        data.val = getNextValue(data.index++);
+      }
+      bits |= (resb > 0 ? 1 : 0) * power;
+      power <<= 1;
+    }
+
+    switch (next = bits) {
+      case 0:
+        bits = 0;
+        maxpower = 2 ** 8;
+        power = 1;
+        while (power !== maxpower) {
+          resb = data.val & data.position;
+          data.position >>= 1;
+          if (data.position === 0) {
+            data.position = resetValue;
+            data.val = getNextValue(data.index++);
+          }
+          bits |= (resb > 0 ? 1 : 0) * power;
+          power <<= 1;
+        }
+
+        dictionary[dictSize++] = String.fromCharCode(bits);
+        next = dictSize - 1;
+        enlargeIn--;
+        break;
+      case 1:
+        bits = 0;
+        maxpower = 2 ** 16;
+        power = 1;
+        while (power !== maxpower) {
+          resb = data.val & data.position;
+          data.position >>= 1;
+          if (data.position === 0) {
+            data.position = resetValue;
+            data.val = getNextValue(data.index++);
+          }
+          bits |= (resb > 0 ? 1 : 0) * power;
+          power <<= 1;
+        }
+        dictionary[dictSize++] = String.fromCharCode(bits);
+        next = dictSize - 1;
+        enlargeIn--;
+        break;
+      case 2:
+        return result.join('');
+    }
+
+    if (enlargeIn === 0) {
+      enlargeIn = 2 ** numBits;
+      numBits++;
+    }
+
+    if (dictionary[next]) {
+      entry = dictionary[next];
+    } else {
+      if (next === dictSize) {
+        entry = w + w.charAt(0);
+      } else {
+        return null;
+      }
+    }
+    result.push(entry);
+
+    dictionary[dictSize++] = w + entry.charAt(0);
+    enlargeIn--;
+    w = entry;
+
+    if (enlargeIn === 0) {
+      enlargeIn = 2 ** numBits;
+      numBits++;
+    }
+  }
+};
 
 const decodeBase64 = (value: string) => {
   try {
@@ -244,6 +771,8 @@ export const applyLoadedGameState = (state: GameSaveState, setters: SaveStateSet
     setters.setDriverMarketLog(state.driverMarketLog);
     setters.setRegulationChangeLog(state.regulationChangeLog);
     setters.setDevResults(state.devResults);
+    setters.setMidSeasonPrompt(state.midSeasonPrompt ?? null);
+    setters.setMidSeasonAdjustments(state.midSeasonAdjustments || []);
     setters.setSelectedTeam(state.selectedTeam);
     setters.setShowHistoryScreen(state.showHistoryScreen);
     setters.setShowGarageScreen(state.showGarageScreen);
@@ -273,7 +802,8 @@ export const applyLoadedGameState = (state: GameSaveState, setters: SaveStateSet
 export const generateSaveCode = (state: GameSaveState): string => {
   const snapshot = getCurrentGameState(state);
   const json = JSON.stringify(snapshot);
-  return encodeBase64(json);
+  const compressed = compressToEncodedURIComponent(json);
+  return compressed.length < json.length ? compressed : encodeBase64(json);
 };
 
 /**
@@ -285,7 +815,11 @@ export const loadFromSaveCode = (code: string, setters: SaveStateSetters): { suc
   }
 
   try {
-    const decoded = decodeBase64(code.trim());
+    const trimmedCode = code.trim();
+    const decompressed = decompressFromEncodedURIComponent(trimmedCode);
+    const decoded = decompressed && decompressed.length > 0
+      ? decompressed
+      : decodeBase64(trimmedCode);
     const parsed = JSON.parse(decoded) as GameSaveState;
     if (!isValidGameState(parsed)) {
       return { success: false, message: 'Save code missing required fields.' };
@@ -295,6 +829,59 @@ export const loadFromSaveCode = (code: string, setters: SaveStateSetters): { suc
   } catch (error) {
     console.error('Failed to load save code', error);
     return { success: false, message: 'Unable to read save code. It may be corrupted or from an older version.' };
+  }
+};
+
+/**
+ * Writes the provided game state into a browser cookie so players get automatic saves without copying codes.
+ */
+export const persistSaveToCookie = (
+  state: GameSaveState,
+  cookieName: string = DEFAULT_SAVE_COOKIE_NAME,
+  storageKey: string = DEFAULT_SAVE_STORAGE_KEY,
+): { success: boolean; message: string } => {
+  try {
+    const code = generateSaveCode(state);
+    const payload: CookieSavePayload = {
+      code,
+      version: state.version ?? 1,
+      savedAt: new Date().toISOString(),
+    };
+    writeAutoSavePayload(payload, cookieName, storageKey);
+    return { success: true, message: 'Game auto-saved to browser cookie.' };
+  } catch (error) {
+    console.error('Failed to persist save to cookie', error);
+    return { success: false, message: 'Unable to auto-save to cookie.' };
+  }
+};
+
+/**
+ * Loads a game state from a browser cookie and hydrates app state.
+ */
+export const loadSaveFromCookie = (
+  setters: SaveStateSetters,
+  cookieName: string = DEFAULT_SAVE_COOKIE_NAME,
+  storageKey: string = DEFAULT_SAVE_STORAGE_KEY,
+): { success: boolean; message: string } => {
+  try {
+    const payload = readAutoSavePayload(cookieName, storageKey);
+    if (!payload) {
+      return { success: false, message: 'No auto-save cookie found.' };
+    }
+
+    if (!payload.code) {
+      return { success: false, message: 'Auto-save cookie is missing a save code.' };
+    }
+
+    const result = loadFromSaveCode(payload.code, setters);
+    if (result.success) {
+      return { success: true, message: `Auto-save from ${payload.savedAt ? new Date(payload.savedAt).toLocaleString() : 'cookie'} loaded.` };
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Failed to load save from cookie', error);
+    return { success: false, message: 'Unable to read auto-save cookie.' };
   }
 };
 

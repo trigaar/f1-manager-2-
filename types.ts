@@ -294,6 +294,35 @@ export interface TeamFinances {
 
 export type TeamPrincipalPersonality = 'Visionary' | 'Pragmatist' | 'Loyalist' | 'Ruthless Operator';
 
+export type DevRiskProfile = 'Conservative' | 'Balanced' | 'Aggressive';
+export type DevFocusArea = 'aero' | 'chassis' | 'powertrain';
+
+export interface MidSeasonDevelopmentOption {
+  id: string;
+  label: string;
+  focus: DevFocusArea;
+  risk: DevRiskProfile;
+  successRange: [number, number];
+  failureRange: [number, number];
+  summary: string;
+}
+
+export interface MidSeasonDevelopmentPrompt {
+  season: number;
+  raceIndex: number;
+  options: MidSeasonDevelopmentOption[];
+}
+
+export interface MidSeasonAdjustment {
+  teamName: string;
+  focus: DevFocusArea;
+  risk: DevRiskProfile;
+  delta: Partial<Car>;
+  outcome: 'Gain' | 'Loss';
+  description: string;
+  appliedAfterRace: number;
+}
+
 export interface TeamPrincipal {
     name: string;
     negotiation: number;
@@ -539,6 +568,8 @@ export interface Track {
 }
 
 export enum GamePhase {
+  START_MENU = 'START_MENU',
+  INTRO = 'INTRO',
   TEAM_SELECTION = 'TEAM_SELECTION',
   SETUP = 'SETUP',
   PRACTICE = 'PRACTICE',

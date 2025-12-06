@@ -1,7 +1,7 @@
 
 
 import React, { useState } from 'react';
-import { InitialDriver, TeamPersonnel, AffiliateDriver, DriverTraitRarity, HeadquartersEvent, HeadquartersEventResolution, WeekendModifier } from '../types';
+import { InitialDriver, TeamPersonnel, AffiliateDriver, DriverTraitRarity, HeadquartersEvent, HeadquartersEventResolution, WeekendModifier, MidSeasonDevelopmentPrompt, MidSeasonAdjustment } from '../types';
 
 interface HeadquartersScreenProps {
     isOpen: boolean;
@@ -14,6 +14,9 @@ interface HeadquartersScreenProps {
     pendingImpact: HeadquartersEventResolution | null;
     activeImpact: WeekendModifier | null;
     onResolveEvent: (eventId: string, choiceId: string) => void;
+    developmentPrompt?: MidSeasonDevelopmentPrompt | null;
+    developmentLog?: MidSeasonAdjustment[];
+    onSelectDevelopmentPlan?: (choiceId: string) => void;
 }
 
 const StatBar: React.FC<{ label: string; value: number; maxValue?: number; colorClass?: string }> = ({ label, value, maxValue = 100, colorClass }) => {
@@ -54,7 +57,7 @@ const TraitPill: React.FC<{ trait: InitialDriver['driverSkills']['trait'] }> = (
 };
 
 
-const HeadquartersScreen: React.FC<HeadquartersScreenProps> = ({ isOpen, onClose, personnel, drivers, affiliate, onContractOffer, event, pendingImpact, activeImpact, onResolveEvent }) => {
+const HeadquartersScreen: React.FC<HeadquartersScreenProps> = ({ isOpen, onClose, personnel, drivers, affiliate, onContractOffer, event, pendingImpact, activeImpact, onResolveEvent, developmentPrompt, developmentLog, onSelectDevelopmentPlan }) => {
     const [negotiationDriverId, setNegotiationDriverId] = useState<number | null>(null);
 
     if (!isOpen) return null;
@@ -196,6 +199,66 @@ const HeadquartersScreen: React.FC<HeadquartersScreenProps> = ({ isOpen, onClose
                                             {buildModifierLines(activeImpact).map(line => <li key={line}>{line}</li>)}
                                         </ul>
                                     )}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    {(developmentPrompt || (developmentLog && developmentLog.length > 0)) && (
+                        <div className="space-y-3 mb-6">
+                            {developmentPrompt && (
+                                <div className="bg-amber-900/30 border border-amber-600/70 rounded-xl p-5 shadow-lg">
+                                    <div className="flex items-start justify-between gap-3 mb-2">
+                                        <div>
+                                            <p className="text-xs uppercase font-bold text-amber-200 tracking-wide">Mid-Season Development</p>
+                                            <h3 className="text-xl font-bold text-white mt-1">Race {developmentPrompt.raceIndex} Checkpoint</h3>
+                                            <p className="text-sm text-gray-200 leading-relaxed">Select a focus and risk profile to nudge the car during the season. Bigger swings carry more risk.</p>
+                                        </div>
+                                        <span className="px-3 py-1 rounded-full bg-white/10 text-[11px] uppercase text-amber-100 border border-amber-300/50">Development</span>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                        {developmentPrompt.options.map(option => {
+                                            const successLow = Math.round(Math.max(0, Math.min(1, option.successRange[0])) * 100);
+                                            const successHigh = Math.round(Math.max(0, Math.min(1, option.successRange[1])) * 100);
+                                            const failureLow = Math.round(Math.max(0, option.failureRange[0]) * 100);
+                                            const failureHigh = Math.round(Math.max(0, option.failureRange[1]) * 100);
+                                            return (
+                                                <div key={option.id} className="bg-gray-900/70 rounded-md p-3 border border-gray-700/70 flex flex-col gap-2">
+                                                    <div className="flex items-center justify-between">
+                                                        <h4 className="font-semibold text-white text-sm">{option.label}</h4>
+                                                        <span className="text-[11px] uppercase font-bold text-amber-200">{option.risk}</span>
+                                                    </div>
+                                                    <p className="text-sm text-gray-200 leading-snug flex-1">{option.summary}</p>
+                                                    <p className="text-[11px] text-gray-300">Success window: {successLow}% - {successHigh}%</p>
+                                                    <p className="text-[11px] text-amber-200">Setback risk: {failureLow}% - {failureHigh}%</p>
+                                                    <button
+                                                        onClick={() => onSelectDevelopmentPlan && onSelectDevelopmentPlan(option.id)}
+                                                        disabled={!onSelectDevelopmentPlan}
+                                                        className="w-full py-2 px-3 bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold rounded disabled:bg-gray-600 disabled:cursor-not-allowed"
+                                                    >
+                                                        Apply Plan
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+                            {developmentLog && developmentLog.length > 0 && (
+                                <div className="bg-gray-900/60 border border-gray-800 rounded-lg p-4">
+                                    <p className="text-xs uppercase text-gray-400 mb-2">Recent Mid-Season Changes</p>
+                                    <div className="space-y-2">
+                                        {developmentLog.slice(0, 5).map(item => (
+                                            <div key={`${item.teamName}-${item.appliedAfterRace}-${item.focus}-${item.outcome}`} className="flex items-start justify-between gap-2 p-2 rounded bg-gray-800/60 border border-gray-700/60">
+                                                <div>
+                                                    <p className="text-sm font-semibold text-white">{item.teamName} · {item.focus.toUpperCase()}</p>
+                                                    <p className="text-xs text-gray-300">{item.description}</p>
+                                                </div>
+                                                <span className={`text-xs font-bold ${item.outcome === 'Gain' ? 'text-emerald-300' : 'text-amber-300'}`}>
+                                                    {item.outcome}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
                             )}
                         </div>
