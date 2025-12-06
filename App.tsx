@@ -1057,6 +1057,8 @@ const App: React.FC = () => {
   const [driverMarketLog, setDriverMarketLog] = useState<DriverMarketEvent[]>([]);
   const [regulationChangeLog, setRegulationChangeLog] = useState<RegulationEvent[]>([]);
   const [devResults, setDevResults] = useState<CarDevelopmentResult[]>([]);
+  const [midSeasonPrompt, setMidSeasonPrompt] = useState<MidSeasonDevelopmentPrompt | null>(null);
+  const [midSeasonAdjustments, setMidSeasonAdjustments] = useState<MidSeasonAdjustment[]>([]);
   
   const [selectedTeam, setSelectedTeam] = useState<string | null>(null);
   const [showHistoryScreen, setShowHistoryScreen] = useState<boolean>(false);
@@ -1276,6 +1278,8 @@ const App: React.FC = () => {
     driverMarketLog,
     regulationChangeLog,
     devResults,
+    midSeasonPrompt,
+    midSeasonAdjustments,
     selectedTeam,
     showHistoryScreen,
     showGarageScreen,
@@ -1332,6 +1336,8 @@ const App: React.FC = () => {
     driverMarketLog,
     regulationChangeLog,
     devResults,
+    midSeasonPrompt,
+    midSeasonAdjustments,
     selectedTeam,
     showHistoryScreen,
     showGarageScreen,
@@ -1409,6 +1415,8 @@ const App: React.FC = () => {
     setDriverMarketLog,
     setRegulationChangeLog,
     setDevResults,
+    setMidSeasonPrompt,
+    setMidSeasonAdjustments,
     setSelectedTeam,
     setShowHistoryScreen,
     setShowGarageScreen,
@@ -1914,6 +1922,27 @@ const App: React.FC = () => {
 
     clearHeadquartersState();
 
+    const completedRaces = nextRaceIndex;
+    const { newCarRatings, adjustments, playerPrompt } = evaluateInSeasonDevelopment(
+      carRatings,
+      personnel,
+      teamFinances,
+      completedRaces,
+      season,
+      playerTeam
+    );
+
+    if (adjustments.length > 0) {
+      setCarRatings(newCarRatings);
+      setMidSeasonAdjustments(prev => [...adjustments, ...prev].slice(0, 12));
+      adjustments.forEach(adj => addLog(`[Development] ${adj.description}`));
+    }
+
+    if (playerPrompt) {
+      setMidSeasonPrompt(playerPrompt);
+      addLog('[HQ] Mid-season development options are ready in Headquarters.');
+    }
+
     const driverForPreview =
         standings.find(s => s.position === 1) ? roster.find(r => r.id === standings.find(s => s.position === 1)!.driverId) :
         drivers.find(d => d.position === 1) ? roster.find(r => r.id === drivers.find(d => d.position === 1)!.id) :
@@ -1946,6 +1975,24 @@ const App: React.FC = () => {
     setFastestLap(null);
     setLog([`Welcome to the next race weekend!`]);
   };
+
+  const handleApplyMidSeasonPlan = useCallback((choiceId: string) => {
+    if (!midSeasonPrompt || !playerTeam) return;
+    const { updatedCars, adjustment } = applyPlayerDevelopmentChoice(
+      carRatings,
+      personnel,
+      teamFinances,
+      playerTeam,
+      choiceId,
+      midSeasonPrompt
+    );
+    setCarRatings(updatedCars);
+    if (adjustment) {
+      setMidSeasonAdjustments(prev => [adjustment, ...prev].slice(0, 12));
+      addLog(`[HQ] ${adjustment.description}`);
+    }
+    setMidSeasonPrompt(null);
+  }, [addLog, carRatings, midSeasonPrompt, personnel, playerTeam, teamFinances]);
   
   const handleProceedToOffSeason = () => {
     clearHeadquartersState();
@@ -2316,6 +2363,8 @@ const App: React.FC = () => {
     setPersonnel(INITIAL_PERSONNEL);
     setCarRatings(CARS);
     setRookiePool(ROOKIE_POOL);
+    setMidSeasonPrompt(null);
+    setMidSeasonAdjustments([]);
     clearHeadquartersState();
     clearHistory();
     clearRaceHistory();
@@ -3060,6 +3109,9 @@ const App: React.FC = () => {
           pendingImpact={pendingHqImpact}
           activeImpact={activeHqModifiers}
           onResolveEvent={handleResolveHeadquartersEvent}
+          developmentPrompt={midSeasonPrompt}
+          developmentLog={midSeasonAdjustments}
+          onSelectDevelopmentPlan={handleApplyMidSeasonPlan}
         />
        )}
     </div>

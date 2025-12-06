@@ -22,6 +22,8 @@ import {
   QualifyingResult,
   RaceHistory,
   RaceState,
+  MidSeasonAdjustment,
+  MidSeasonDevelopmentPrompt,
   RegulationEvent,
   ResourceAllocationEvent,
   RookieDriver,
@@ -77,6 +79,8 @@ export interface GameSaveState {
   driverMarketLog: DriverMarketEvent[];
   regulationChangeLog: RegulationEvent[];
   devResults: CarDevelopmentResult[];
+  midSeasonPrompt: MidSeasonDevelopmentPrompt | null;
+  midSeasonAdjustments: MidSeasonAdjustment[];
   selectedTeam: string | null;
   showHistoryScreen: boolean;
   showGarageScreen: boolean;
@@ -145,6 +149,8 @@ export interface SaveStateSetters {
   setDriverMarketLog: (log: DriverMarketEvent[]) => void;
   setRegulationChangeLog: (log: RegulationEvent[]) => void;
   setDevResults: (results: CarDevelopmentResult[]) => void;
+  setMidSeasonPrompt: (prompt: MidSeasonDevelopmentPrompt | null) => void;
+  setMidSeasonAdjustments: (adjustments: MidSeasonAdjustment[]) => void;
   setSelectedTeam: (team: string | null) => void;
   setShowHistoryScreen: (value: boolean) => void;
   setShowGarageScreen: (value: boolean) => void;
@@ -765,6 +771,8 @@ export const applyLoadedGameState = (state: GameSaveState, setters: SaveStateSet
     setters.setDriverMarketLog(state.driverMarketLog);
     setters.setRegulationChangeLog(state.regulationChangeLog);
     setters.setDevResults(state.devResults);
+    setters.setMidSeasonPrompt(state.midSeasonPrompt ?? null);
+    setters.setMidSeasonAdjustments(state.midSeasonAdjustments || []);
     setters.setSelectedTeam(state.selectedTeam);
     setters.setShowHistoryScreen(state.showHistoryScreen);
     setters.setShowGarageScreen(state.showGarageScreen);
